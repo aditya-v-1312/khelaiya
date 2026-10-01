@@ -1,18 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const rawServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+// Safely ignore connection strings (postgresql://...) and use anon/service API key
+const supabaseKey = (rawServiceKey && !rawServiceKey.startsWith('postgres'))
+  ? rawServiceKey
+  : anonKey;
 
 /**
- * Returns a server-side Supabase client with service-role permissions
- * for executing transactional atomic operations.
- * Service role key is NEVER exposed to the browser.
+ * Returns a server-side Supabase client for executing
+ * transactional atomic operations and queries.
  */
 export function getServiceSupabase() {
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
+  if (!supabaseUrl || !supabaseKey) {
     return null;
   }
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+  return createClient(supabaseUrl, supabaseKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
