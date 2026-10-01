@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { Camera, RefreshCw, AlertCircle, Zap, ShieldCheck } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, Zap, Image as ImageIcon, Keyboard } from 'lucide-react';
 
 interface ScannerProps {
   onScan: (decodedText: string) => Promise<void>;
@@ -17,19 +17,23 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [torchOn, setTorchOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [manualTicketId, setManualTicketId] = useState('');
 
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const isLockedRef = useRef(false);
+  const isStartingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const containerId = 'qr-reader-container';
 
-  // Keep lock ref synchronized
+  // Synchronize lock status
   useEffect(() => {
     isLockedRef.current = isProcessing || !!disabled;
   }, [isProcessing, disabled]);
 
   const handleScanSuccess = useCallback(
     async (decodedText: string) => {
-      // Prevent rapid duplicate firings while processing
       if (isLockedRef.current) return;
       isLockedRef.current = true;
 
@@ -42,11 +46,40 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
     [onScan]
   );
 
+  const stopScanner = useCallback(async () => {
+    try {
+      const scanner = html5QrCodeRef.current;
+      if (scanner && scanner.isScanning) {
+        await scanner.stop();
+      }
+    } catch (e) {
+      // Ignore transition errors during stop
+      console.warn('Scanner stop warning:', e);
+    } finally {
+      if (isMountedRef.current) {
+        setScannerStarted(false);
+      }
+    }
+  }, []);
+
   const startScanner = useCallback(
     async (cameraId?: string) => {
+      // Prevent concurrent start calls
+      if (isStartingRef.current) return;
+      isStartingRef.current = true;
+
       try {
+        if (!isMountedRef.current) return;
         setCameraError(null);
 
+        // Ensure container DOM exists
+        const container = document.getElementById(containerId);
+        if (!container) {
+          isStartingRef.current = false;
+          return;
+        }
+
+        // Initialize or reuse Html5Qrcode instance
         if (!html5QrCodeRef.current) {
           html5QrCodeRef.current = new Html5Qrcode(containerId, {
             formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
@@ -56,63 +89,74 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
 
         const scanner = html5QrCodeRef.current;
         if (scanner.isScanning) {
-          await scanner.stop();
+          try {
+            await scanner.stop();
+          } catch {}
         }
 
-        const cameraConfig = cameraId
-          ? { deviceId: { exact: cameraId } }
-          : { facingMode: 'environment' };
+        const qrConfig = {
+          fps: 15,
+          qrbox: { width: 260, height: 260 },
+          aspectRatio: 1.0,
+        };
 
-        await scanner.start(
-          cameraConfig,
-          {
-            fps: 15,
-            qrbox: { width: 260, height: 260 },
-            aspectRatio: 1.0,
-          },
-          (decodedText) => {
-            handleScanSuccess(decodedText);
-          },
-          () => {
-            // Frame scanned without QR, ignore silently
-          }
-        );
+        const successCallback = (decodedText: string) => {
+          handleScanSuccess(decodedText);
+        };
+        const errorCallback = () => {};
 
-        setScannerStarted(true);
-
-        // Check if torch is supported
+        // Try primary camera configuration
         try {
-          const capabilities = scanner.getRunningTrackCapabilities();
-          if (capabilities && 'torch' in capabilities) {
-            setHasTorch(true);
+          if (cameraId) {
+            await scanner.start({ deviceId: { exact: cameraId } }, qrConfig, successCallback, errorCallback);
+          } else {
+            // Prefer rear environment camera on phones
+            await scanner.start({ facingMode: 'environment' }, qrConfig, successCallback, errorCallback);
           }
-        } catch {
-          setHasTorch(false);
+        } catch (firstErr) {
+          console.warn('Environment camera start failed, attempting user-facing fallback:', firstErr);
+          // Fallback to any available camera (e.g. Mac/laptop webcam)
+          await scanner.start({ facingMode: 'user' }, qrConfig, successCallback, errorCallback);
+        }
+
+        if (isMountedRef.current) {
+          setScannerStarted(true);
+
+          // Check if torch/flashlight is supported
+          try {
+            const capabilities = scanner.getRunningTrackCapabilities();
+            if (capabilities && 'torch' in capabilities) {
+              setHasTorch(true);
+            }
+          } catch {
+            setHasTorch(false);
+          }
         }
       } catch (err: unknown) {
         console.error('Error starting camera:', err);
-        const errMsg = (err as Error)?.message || 'Failed to start camera.';
-        if (errMsg.includes('NotAllowedError') || errMsg.includes('Permission')) {
-          setCameraError('Camera access denied. Please allow camera permissions in your browser.');
-        } else {
-          setCameraError(`Camera error: ${errMsg}. Make sure you are using HTTPS or localhost.`);
+        if (isMountedRef.current) {
+          const errMsg = (err as Error)?.message || 'Failed to start camera.';
+          if (
+            errMsg.includes('NotAllowedError') ||
+            errMsg.includes('Permission') ||
+            errMsg.includes('denied')
+          ) {
+            setCameraError(
+              'Camera permission denied. Please allow camera access in your browser address bar (tap the lock/camera icon).'
+            );
+          } else if (errMsg.includes('NotFoundError') || errMsg.includes('no camera')) {
+            setCameraError('No camera found on this device. You can test by uploading a QR image below.');
+          } else {
+            setCameraError(`Camera notice: ${errMsg}. Ensure no other app (e.g. Zoom, Meet) is using the camera.`);
+          }
+          setScannerStarted(false);
         }
-        setScannerStarted(false);
+      } finally {
+        isStartingRef.current = false;
       }
     },
     [handleScanSuccess]
   );
-
-  const stopScanner = useCallback(async () => {
-    try {
-      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-        await html5QrCodeRef.current.stop();
-      }
-      setScannerStarted(false);
-    } catch (e) {
-      console.warn('Error stopping scanner:', e);
-    }
-  }, []);
 
   const toggleTorch = async () => {
     if (!html5QrCodeRef.current || !hasTorch) return;
@@ -127,34 +171,69 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
     }
   };
 
-  // Initialize camera list on mount
-  useEffect(() => {
-    let mounted = true;
+  // Scan from uploaded file / photo
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    async function initCameras() {
+    try {
+      if (!html5QrCodeRef.current) {
+        html5QrCodeRef.current = new Html5Qrcode(containerId, {
+          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+          verbose: false,
+        });
+      }
+      const decodedText = await html5QrCodeRef.current.scanFile(file, true);
+      if (decodedText) {
+        handleScanSuccess(decodedText);
+      }
+    } catch (err) {
+      alert('Could not detect a QR code in this image. Try another photo.');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Manual ticket ID submit
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (manualTicketId.trim()) {
+      handleScanSuccess(manualTicketId.trim());
+      setManualTicketId('');
+      setShowManualInput(false);
+    }
+  };
+
+  // Mount effect
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    async function init() {
       try {
         const devices = await Html5Qrcode.getCameras();
-        if (mounted && devices && devices.length > 0) {
+        if (isMountedRef.current && devices && devices.length > 0) {
           setCameras(devices);
-          // Prefer back/environment camera
-          const backCam = devices.find((d) =>
-            d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('rear')
+          const backCam = devices.find(
+            (d) => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('rear')
           );
           const defaultId = backCam ? backCam.id : devices[0].id;
           setSelectedCameraId(defaultId);
           startScanner(defaultId);
-        } else if (mounted) {
-          startScanner();
+          return;
         }
-      } catch {
-        if (mounted) startScanner();
+      } catch (err) {
+        console.warn('getCameras failed, falling back to default start:', err);
+      }
+
+      if (isMountedRef.current) {
+        startScanner();
       }
     }
 
-    initCameras();
+    init();
 
     return () => {
-      mounted = false;
+      isMountedRef.current = false;
       if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
         html5QrCodeRef.current.stop().catch(() => {});
       }
@@ -186,7 +265,7 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
 
         {/* Processing Spinner Overlay */}
         {isProcessing && (
-          <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center z-20">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-20">
             <div className="w-16 h-16 border-4 border-amber-400 border-t-transparent rounded-full animate-spin" />
             <p className="mt-4 text-amber-200 font-bold text-lg tracking-wider uppercase">
               Verifying Ticket...
@@ -194,34 +273,62 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
           </div>
         )}
 
-        {/* Camera Error Message */}
+        {/* Camera Error Message with Helpful Fallbacks */}
         {cameraError && (
-          <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center z-30">
-            <AlertCircle className="w-14 h-14 text-rose-500 mb-3" />
-            <h4 className="text-white font-bold text-lg mb-1">Camera Access Issue</h4>
-            <p className="text-rose-200 text-sm mb-4">{cameraError}</p>
-            <button
-              onClick={() => startScanner(selectedCameraId)}
-              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl transition flex items-center gap-2"
-            >
-              <RefreshCw className="w-4 h-4" /> Try Again
-            </button>
+          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center z-30 space-y-4">
+            <AlertCircle className="w-14 h-14 text-rose-500" />
+            <div>
+              <h4 className="text-white font-bold text-lg">Camera Access</h4>
+              <p className="text-slate-300 text-xs mt-1 max-w-xs">{cameraError}</p>
+            </div>
+
+            <div className="flex flex-col gap-2 w-full max-w-xs">
+              <button
+                onClick={() => startScanner(selectedCameraId)}
+                className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" /> Grant / Retry Camera
+              </button>
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-2.5 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2"
+              >
+                <ImageIcon className="w-4 h-4 text-amber-400" /> Upload QR Image
+              </button>
+
+              <button
+                onClick={() => setShowManualInput(true)}
+                className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-slate-300 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2"
+              >
+                <Keyboard className="w-4 h-4 text-slate-400" /> Type Ticket ID
+              </button>
+            </div>
           </div>
         )}
       </div>
 
+      {/* Hidden file input for QR image upload fallback */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+
       {/* Controls under scanner */}
-      <div className="w-full max-w-md mt-4 flex items-center justify-between gap-3 px-2">
+      <div className="w-full max-w-md mt-4 flex items-center justify-between gap-2 px-1">
         {hasTorch && (
           <button
             onClick={toggleTorch}
-            className={`p-3 rounded-2xl flex items-center gap-2 text-sm font-semibold transition ${
+            className={`p-2.5 rounded-xl flex items-center gap-1.5 text-xs font-semibold transition ${
               torchOn
-                ? 'bg-amber-400 text-black shadow-lg shadow-amber-400/30'
+                ? 'bg-amber-400 text-black shadow-lg shadow-amber-400/30 font-bold'
                 : 'bg-white/10 text-white hover:bg-white/20'
             }`}
           >
-            <Zap className="w-5 h-5" />
+            <Zap className="w-4 h-4" />
             {torchOn ? 'Torch On' : 'Torch'}
           </button>
         )}
@@ -234,24 +341,63 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
               setSelectedCameraId(nextId);
               startScanner(nextId);
             }}
-            className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl flex items-center gap-2 text-sm font-semibold transition"
+            className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl flex items-center gap-1.5 text-xs font-semibold transition"
           >
-            <Camera className="w-5 h-5 text-amber-400" /> Switch Camera
+            <Camera className="w-4 h-4 text-amber-400" /> Flip
           </button>
         )}
 
         <button
+          onClick={() => fileInputRef.current?.click()}
+          className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl flex items-center gap-1.5 text-xs font-semibold transition"
+          title="Scan QR from photo"
+        >
+          <ImageIcon className="w-4 h-4 text-emerald-400" /> Photo
+        </button>
+
+        <button
+          onClick={() => setShowManualInput((prev) => !prev)}
+          className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl flex items-center gap-1.5 text-xs font-semibold transition"
+          title="Manual code entry"
+        >
+          <Keyboard className="w-4 h-4 text-amber-300" /> Type ID
+        </button>
+
+        <button
           onClick={() => (scannerStarted ? stopScanner() : startScanner(selectedCameraId))}
-          className={`ml-auto p-3 rounded-2xl text-sm font-semibold transition flex items-center gap-2 ${
+          className={`ml-auto p-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
             scannerStarted
               ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30'
               : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30'
           }`}
         >
-          <RefreshCw className="w-4 h-4" />
-          {scannerStarted ? 'Pause Camera' : 'Resume Camera'}
+          <RefreshCw className="w-3.5 h-3.5" />
+          {scannerStarted ? 'Pause' : 'Resume'}
         </button>
       </div>
+
+      {/* Manual Ticket Input Dropdown */}
+      {showManualInput && (
+        <form
+          onSubmit={handleManualSubmit}
+          className="w-full max-w-md mt-3 flex gap-2 p-3 bg-slate-900 border border-amber-500/30 rounded-2xl animate-in fade-in"
+        >
+          <input
+            type="text"
+            placeholder="e.g. NUV-KHL-X7F92KLMQ4"
+            value={manualTicketId}
+            onChange={(e) => setManualTicketId(e.target.value)}
+            className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-amber-400"
+            autoFocus
+          />
+          <button
+            type="submit"
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl transition"
+          >
+            Submit
+          </button>
+        </form>
+      )}
     </div>
   );
 }
