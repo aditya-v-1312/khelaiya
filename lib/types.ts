@@ -1,12 +1,19 @@
-export type AttendeeStatus = 'registered' | 'entered' | 'revoked';
+export type AttendeeStatus = 'registered' | 'approved' | 'unapproved' | 'entered' | 'revoked';
 
-export type ScanType = 'entry' | 'verification' | 'manual_entry';
+export type ScanType = 'entry' | 'verification' | 'manual_entry' | 'approval';
 
-export type ScanResultStatus = 'valid' | 'already_entered' | 'invalid' | 'revoked' | 'error';
+export type ScanResultStatus =
+  | 'valid'
+  | 'already_entered'
+  | 'not_approved'
+  | 'invalid'
+  | 'revoked'
+  | 'error';
 
 export interface Attendee {
   id: string;
   ticket_id: string;
+  pass_number?: number;
   name: string;
   enrollment: string;
   phone: string;

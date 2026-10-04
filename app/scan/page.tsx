@@ -18,12 +18,14 @@ import {
   ArrowRight,
   ArrowLeft,
   RefreshCw,
+  CheckCircle2,
 } from 'lucide-react';
 
 export default function EntryScannerPage() {
   // Scanner Identity State (stored in localStorage)
   const [gate, setGate] = useState<GateId>('Gate 1');
   const [scannerId, setScannerId] = useState<ScannerId>('G1-A');
+  const [dutyMode, setDutyMode] = useState<'entry' | 'distribution'>('entry');
   const [isConfigured, setIsConfigured] = useState<boolean>(false);
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
 
@@ -55,6 +57,11 @@ export default function EntryScannerPage() {
 
       if (savedCount) {
         setScanCount(parseInt(savedCount, 10));
+      }
+
+      const savedMode = localStorage.getItem('khelaiya_duty_mode') as 'entry' | 'distribution';
+      if (savedMode) {
+        setDutyMode(savedMode);
       }
 
       // Online/Offline listener
@@ -104,6 +111,48 @@ export default function EntryScannerPage() {
     setIsProcessing(true);
     setNetworkError(null);
 
+    // Distribution Desk Approval Mode
+    if (dutyMode === 'distribution') {
+      try {
+        const res = await fetch('/api/admin/passes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'approve',
+            ticketIdOrPassNumber: decodedText,
+            scannerId,
+            gate,
+          }),
+        });
+
+        const data = await res.json();
+        setLastResult(data);
+
+        if (data.success) {
+          playSuccessSound();
+          setScanCount((prev) => {
+            const next = prev + 1;
+            localStorage.setItem('khelaiya_scancount', next.toString());
+            return next;
+          });
+        } else {
+          playDuplicateSound();
+        }
+      } catch {
+        setNetworkError('Connection error during ticket pass approval.');
+        playErrorSound();
+      } finally {
+        setIsProcessing(false);
+      }
+
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = setTimeout(() => {
+        clearResultAndResume();
+      }, 3000);
+      return;
+    }
+
+    // Standard Gate Entry Mode (1-time check)
     try {
       const res = await fetch('/api/scan/entry', {
         method: 'POST',
@@ -129,7 +178,7 @@ export default function EntryScannerPage() {
           localStorage.setItem('khelaiya_scancount', next.toString());
           return next;
         });
-      } else if (data.result === 'already_entered') {
+      } else if (data.result === 'already_entered' || data.result === 'not_approved') {
         playDuplicateSound();
       } else {
         playErrorSound();
@@ -166,9 +215,22 @@ export default function EntryScannerPage() {
               <span className="font-black text-amber-400 tracking-wider text-base">
                 NUV KHELAIYA
               </span>
-              <span className="text-[10px] bg-amber-400/20 text-amber-300 font-bold px-2 py-0.5 rounded-full uppercase">
-                Gate Entry
-              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextMode = dutyMode === 'entry' ? 'distribution' : 'entry';
+                  setDutyMode(nextMode);
+                  localStorage.setItem('khelaiya_duty_mode', nextMode);
+                }}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase transition ${
+                  dutyMode === 'distribution'
+                    ? 'bg-purple-500/30 text-purple-200 border border-purple-400/40'
+                    : 'bg-amber-400/20 text-amber-300'
+                }`}
+                title="Click to toggle between Gate Entry and Desk Approval"
+              >
+                {dutyMode === 'distribution' ? 'Desk Approval' : 'Gate Entry'}
+              </button>
             </div>
             <div className="text-xs text-slate-300 font-medium flex items-center gap-1.5 mt-0.5">
               <span className="text-amber-200 font-bold">{gate}</span>
@@ -217,10 +279,14 @@ export default function EntryScannerPage() {
           className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 cursor-pointer transition-all ${
             networkError
               ? 'bg-amber-600'
+              : dutyMode === 'distribution' && lastResult?.success
+              ? 'bg-emerald-600'
               : lastResult?.result === 'valid'
               ? 'bg-emerald-600'
               : lastResult?.result === 'already_entered'
               ? 'bg-rose-700'
+              : lastResult?.result === 'not_approved'
+              ? 'bg-amber-700'
               : lastResult?.result === 'revoked'
               ? 'bg-orange-600'
               : 'bg-rose-800'
@@ -247,8 +313,43 @@ export default function EntryScannerPage() {
             </div>
           )}
 
-          {/* CASE 1: VALID ENTRY APPROVED (GREEN) */}
-          {lastResult?.result === 'valid' && (
+          {/* DISTRIBUTION DESK SUCCESS (GREEN) */}
+          {dutyMode === 'distribution' && lastResult?.success && (
+            <div className="text-center max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
+              <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white">
+                <CheckCircle2 className="w-16 h-16 text-white" />
+              </div>
+              <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tight text-white drop-shadow-md">
+                PASS APPROVED!
+              </h1>
+
+              <div className="bg-black/30 backdrop-blur-md rounded-3xl p-5 border border-white/20 shadow-2xl text-left space-y-3">
+                <div>
+                  <span className="text-xs uppercase font-bold text-emerald-200 tracking-wider">
+                    Physical Ticket Pass
+                  </span>
+                  <p className="text-4xl font-black text-amber-300 leading-tight">
+                    {lastResult.attendee?.pass_number
+                      ? `PASS #${String(lastResult.attendee.pass_number).padStart(4, '0')}`
+                      : lastResult.attendee?.name || lastResult.ticket_id}
+                  </p>
+                </div>
+                <div className="bg-emerald-950/60 border border-emerald-400/40 rounded-xl p-3 text-emerald-100 text-sm font-semibold">
+                  ✅ Ticket activated! Attendee may now enter at any gate.
+                </div>
+                <div className="pt-2 border-t border-white/20 flex items-center justify-between text-xs font-mono text-emerald-100">
+                  <span className="flex items-center gap-1 font-semibold">
+                    <Clock className="w-3.5 h-3.5" />
+                    {new Date().toLocaleTimeString()}
+                  </span>
+                  <span className="font-bold opacity-80">{lastResult.ticket_id}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CASE 1: GATE ENTRY APPROVED (GREEN) */}
+          {dutyMode === 'entry' && lastResult?.result === 'valid' && (
             <div className="text-center max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
               <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white">
                 <ShieldCheck className="w-16 h-16 text-white" />
@@ -260,20 +361,24 @@ export default function EntryScannerPage() {
               <div className="bg-black/30 backdrop-blur-md rounded-3xl p-5 border border-white/20 shadow-2xl text-left space-y-3">
                 <div>
                   <span className="text-xs uppercase font-bold text-emerald-200 tracking-wider">
-                    Attendee Name
+                    {lastResult.attendee?.name && !lastResult.attendee.name.startsWith('Pass #')
+                      ? 'Attendee Name'
+                      : 'Physical Pass'}
                   </span>
-                  <p className="text-3xl font-black text-white leading-tight">
-                    {lastResult.attendee?.name}
+                  <p className="text-3xl sm:text-4xl font-black text-amber-300 leading-tight">
+                    {lastResult.attendee?.pass_number
+                      ? `PASS #${String(lastResult.attendee.pass_number).padStart(4, '0')}`
+                      : lastResult.attendee?.name || lastResult.ticket_id}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/20">
                   <div>
                     <span className="text-[11px] uppercase font-bold text-emerald-200">
-                      Enrollment
+                      Pass Code
                     </span>
                     <p className="text-lg font-mono font-bold text-white">
-                      {lastResult.attendee?.enrollment}
+                      {lastResult.attendee?.enrollment || lastResult.ticket_id}
                     </p>
                   </div>
                   <div>
@@ -301,17 +406,19 @@ export default function EntryScannerPage() {
               <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white animate-bounce">
                 <AlertTriangle className="w-16 h-16 text-white" />
               </div>
-              <h1 className="text-5xl font-black uppercase tracking-tight text-white drop-shadow-md">
+              <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tight text-white drop-shadow-md">
                 ALREADY ENTERED
               </h1>
 
               <div className="bg-black/30 backdrop-blur-md rounded-3xl p-5 border border-white/20 shadow-2xl text-left space-y-3">
                 <div>
                   <span className="text-xs uppercase font-bold text-rose-200 tracking-wider">
-                    Attendee Name
+                    Ticket Pass
                   </span>
-                  <p className="text-2xl font-black text-white leading-tight">
-                    {lastResult.attendee?.name || 'Registered Attendee'}
+                  <p className="text-3xl font-black text-white leading-tight">
+                    {lastResult.attendee?.pass_number
+                      ? `PASS #${String(lastResult.attendee.pass_number).padStart(4, '0')}`
+                      : lastResult.attendee?.name || lastResult.ticket_id}
                   </p>
                 </div>
 
@@ -338,6 +445,42 @@ export default function EntryScannerPage() {
                       {lastResult.attendee?.entry_gate || 'Gate 1'}
                     </p>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CASE: TICKET NOT APPROVED / NOT DISTRIBUTED (AMBER) */}
+          {lastResult?.result === 'not_approved' && (
+            <div className="text-center max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
+              <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white animate-pulse">
+                <AlertTriangle className="w-16 h-16 text-amber-200" />
+              </div>
+              <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tight text-white drop-shadow-md">
+                NOT APPROVED
+              </h1>
+
+              <div className="bg-black/30 backdrop-blur-md rounded-3xl p-5 border border-white/20 shadow-2xl text-left space-y-3">
+                <div>
+                  <span className="text-xs uppercase font-bold text-amber-200 tracking-wider">
+                    Ticket Pass
+                  </span>
+                  <p className="text-3xl font-black text-amber-300 leading-tight">
+                    {lastResult.attendee?.pass_number
+                      ? `PASS #${String(lastResult.attendee.pass_number).padStart(4, '0')}`
+                      : lastResult.attendee?.name || lastResult.ticket_id}
+                  </p>
+                </div>
+
+                <div className="bg-amber-950/60 border border-amber-400/40 rounded-xl p-3 text-amber-100 text-sm font-semibold">
+                  ⚠️ This pass has NOT been approved or issued yet. Direct attendee to Helpdesk.
+                </div>
+
+                <div className="pt-2 border-t border-white/20 flex items-center justify-between text-xs font-mono text-amber-100">
+                  <span className="flex items-center gap-1 font-semibold">
+                    <Clock className="w-3.5 h-3.5" /> {new Date().toLocaleTimeString()}
+                  </span>
+                  <span className="font-bold opacity-80">{lastResult.ticket_id}</span>
                 </div>
               </div>
             </div>

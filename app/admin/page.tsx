@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Sparkles,
   Database,
+  Trash2,
 } from 'lucide-react';
 
 interface StatsData {
@@ -70,10 +71,32 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       alert(data.message || 'Seeding complete');
       fetchStats();
-    } catch (err) {
+    } catch {
       alert('Error seeding data');
     } finally {
       setSeeding(false);
+    }
+  };
+
+  const handleClearDatabase = async () => {
+    if (
+      !confirm(
+        'Are you sure you want to completely CLEAR the database? All attendees and scan logs will be removed.'
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/passes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear' }),
+      });
+      const data = await res.json();
+      alert(data.message || 'Database cleared!');
+      fetchStats();
+    } catch {
+      alert('Error clearing database');
     }
   };
 
@@ -114,13 +137,22 @@ export default function AdminDashboardPage() {
 
         <div className="flex items-center gap-2">
           <button
+            onClick={handleClearDatabase}
+            className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-300 transition flex items-center gap-1.5"
+            title="Wipe database completely"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+            Clear Database
+          </button>
+
+          <button
             onClick={() => handleSeed(1500)}
             disabled={seeding}
             className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-semibold text-slate-300 transition flex items-center gap-1.5"
             title="Seed 1,500 fake attendees for testing"
           >
             <Database className="w-3.5 h-3.5 text-amber-400" />
-            {seeding ? 'Seeding 1.5k...' : 'Seed 1,500 Test Attendees'}
+            {seeding ? 'Seeding 1.5k...' : 'Seed 1.5k'}
           </button>
 
           <button

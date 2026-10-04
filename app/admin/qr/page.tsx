@@ -53,57 +53,70 @@ export default function QRManagementPage() {
       a.ticket_id.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Bulk ZIP Download
-  const handleBulkZipDownload = async () => {
-    if (attendees.length === 0) {
-      alert('No attendees found to generate QR codes.');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [genCount, setGenCount] = useState(1500);
+  const [genStatus, setGenStatus] = useState<'approved' | 'unapproved'>('approved');
+
+  // Generate Numbered Passes (1 to 1500)
+  const handleGeneratePasses = async () => {
+    if (
+      !confirm(
+        `Generate ${genCount} physical ticket passes numbered Pass #0001 to #${String(
+          genCount
+        ).padStart(4, '0')} with initial status "${genStatus.toUpperCase()}"?`
+      )
+    ) {
       return;
     }
 
+    setIsGenerating(true);
+    try {
+      const res = await fetch('/api/admin/passes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate',
+          count: genCount,
+          initialStatus: genStatus,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message || `Successfully generated ${genCount} ticket passes!`);
+        fetchAttendees();
+      } else {
+        alert(data.message || 'Failed to generate passes');
+      }
+    } catch (err) {
+      alert('Error generating passes');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Bulk ZIP Download
+  const handleBulkZipDownload = async () => {
     setIsZipping(true);
-    setZipProgress('Initializing ZIP archive...');
+    setZipProgress('Creating ZIP package on server...');
 
     try {
-      const zip = new JSZip();
-      const folder = zip.folder('NUV_Khelaiya_QR_Codes');
-
-      let count = 0;
-      for (const att of attendees) {
-        setZipProgress(`Rendering QR ${count + 1} of ${attendees.length}...`);
-        // Generate high resolution PNG data URL
-        const dataUrl = await QRCode.toDataURL(att.ticket_id, {
-          errorCorrectionLevel: 'H',
-          margin: 2,
-          width: 512,
-        });
-
-        // Strip data:image/png;base64, prefix
-        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
-        const filename = `${att.enrollment}_${att.name.replace(/[^a-zA-Z0-9]/g, '_')}_${att.ticket_id}.png`;
-        folder?.file(filename, base64Data, { base64: true });
-        count++;
-      }
-
-      setZipProgress('Compressing ZIP archive file...');
-      const content = await zip.generateAsync({ type: 'blob' });
-
-      // Trigger browser download
-      const downloadUrl = URL.createObjectURL(content);
+      const res = await fetch('/api/admin/passes/zip');
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const downloadUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = `NUV_Khelaiya_All_${attendees.length}_QR_Codes.zip`;
+      a.download = `NUV_Khelaiya_All_${attendees.length > 0 ? attendees.length : 1500}_Pass_QRs.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(downloadUrl);
-
-      setZipProgress('');
-      alert(`Successfully downloaded ${attendees.length} QR codes in ZIP!`);
     } catch (err) {
       console.error('ZIP error:', err);
-      alert('Failed to generate ZIP archive.');
+      alert('Failed to download ZIP archive.');
     } finally {
       setIsZipping(false);
+      setZipProgress('');
     }
   };
 
@@ -173,6 +186,61 @@ export default function QRManagementPage() {
           >
             <Printer className="w-4 h-4 text-amber-300" /> Print Visible Passes
           </button>
+        </div>
+      </div>
+
+      {/* ⚡ PHYSICAL PASS GENERATOR (1 to 1500) */}
+      <div className="bg-gradient-to-r from-amber-500/10 via-purple-500/10 to-rose-500/10 border-2 border-amber-500/30 rounded-3xl p-5 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-amber-400" />
+              <h2 className="text-lg font-black text-amber-300">
+                Generate Physical Ticket Passes (1 to 1,500)
+              </h2>
+            </div>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Instantly create generic numbered passes (Pass #0001 to Pass #1500). No student names needed — attach QR codes directly to physical tickets or wristbands.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs">
+              <span className="text-slate-400 font-semibold">Qty:</span>
+              <select
+                value={genCount}
+                onChange={(e) => setGenCount(Number(e.target.value))}
+                className="bg-transparent text-amber-300 font-bold focus:outline-none"
+              >
+                <option value={1500} className="bg-slate-900 text-white">1,500 Passes</option>
+                <option value={1200} className="bg-slate-900 text-white">1,200 Passes</option>
+                <option value={1000} className="bg-slate-900 text-white">1,000 Passes</option>
+                <option value={500} className="bg-slate-900 text-white">500 Passes</option>
+                <option value={100} className="bg-slate-900 text-white">100 Passes</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs">
+              <span className="text-slate-400 font-semibold">Status:</span>
+              <select
+                value={genStatus}
+                onChange={(e) => setGenStatus(e.target.value as 'approved' | 'unapproved')}
+                className="bg-transparent text-emerald-300 font-bold focus:outline-none"
+              >
+                <option value="approved" className="bg-slate-900 text-white">Pre-Approved (Ready for Gate)</option>
+                <option value="unapproved" className="bg-slate-900 text-white">Unapproved (Needs Desk Approval)</option>
+              </select>
+            </div>
+
+            <button
+              onClick={handleGeneratePasses}
+              disabled={isGenerating}
+              className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 disabled:opacity-50 text-slate-950 font-black rounded-xl text-xs transition shadow-md flex items-center gap-1.5"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              {isGenerating ? 'Generating...' : `Generate ${genCount} Passes`}
+            </button>
+          </div>
         </div>
       </div>
 

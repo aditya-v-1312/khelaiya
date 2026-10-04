@@ -1,6 +1,18 @@
 import { getServiceSupabase } from './server';
-import { generateTicketId } from '../ticket-generator';
+import { generateTicketId, generateNumberedTicketId } from '../ticket-generator';
 import { Attendee, ScanLog, ScanResponse } from '../types';
+
+export function normalizeTicketId(input: string): string {
+  const trimmed = input.trim();
+  if (/^\d{1,5}$/.test(trimmed)) {
+    return `NUV-KHL-${trimmed.padStart(4, '0')}`;
+  }
+  const passMatch = trimmed.match(/^PASS[-_]?(\d{1,5})$/i);
+  if (passMatch) {
+    return `NUV-KHL-${passMatch[1].padStart(4, '0')}`;
+  }
+  return trimmed;
+}
 
 // In-memory fallback database for local development/testing when Supabase env vars are not set
 class LocalDataStore {
@@ -8,38 +20,24 @@ class LocalDataStore {
   scanLogs: ScanLog[] = [];
   private lock: Promise<void> = Promise.resolve();
 
+  findAttendee(query: string): Attendee | undefined {
+    const clean = normalizeTicketId(query);
+    if (this.attendees.has(clean)) return this.attendees.get(clean);
+    if (this.attendees.has(query.trim())) return this.attendees.get(query.trim());
+    for (const a of this.attendees.values()) {
+      if (a.ticket_id === clean || a.ticket_id === query.trim()) return a;
+      if (a.enrollment === query.trim() || a.enrollment === clean) return a;
+      if (a.pass_number && String(a.pass_number) === query.trim()) return a;
+    }
+    return undefined;
+  }
+
   constructor() {
     this.seedDefaults();
   }
 
   private seedDefaults() {
-    // A couple of initial demo records if completely empty
-    const demo1: Attendee = {
-      id: 'd1000000-0000-0000-0000-000000000001',
-      ticket_id: 'NUV-KHL-DEMO8899AA',
-      name: 'Vishwa Prajapati',
-      enrollment: '26001017',
-      phone: '9409679991',
-      status: 'registered',
-      created_at: new Date().toISOString(),
-      entry_time: null,
-      entry_gate: null,
-      entry_scanner: null,
-    };
-    const demo2: Attendee = {
-      id: 'd2000000-0000-0000-0000-000000000002',
-      ticket_id: 'NUV-KHL-DEMO9900BB',
-      name: 'Jiya Khetwani',
-      enrollment: '26000996',
-      phone: '8460916715',
-      status: 'registered',
-      created_at: new Date().toISOString(),
-      entry_time: null,
-      entry_gate: null,
-      entry_scanner: null,
-    };
-    this.attendees.set(demo1.ticket_id, demo1);
-    this.attendees.set(demo2.ticket_id, demo2);
+    // Empty by default — fresh database with zero attendees
   }
 
   // Atomic mutex execution for local fallback simulation
@@ -85,7 +83,7 @@ export async function recordQREntry({
   scannerId: string;
   scanType?: 'entry' | 'manual_entry';
 }): Promise<ScanResponse> {
-  const cleanTicket = ticketId.trim();
+  const cleanTicket = normalizeTicketId(ticketId);
   const supabase = getServiceSupabase();
 
   if (supabase) {
@@ -97,20 +95,71 @@ export async function recordQREntry({
         p_scan_type: scanType,
       });
 
-      if (error) {
-        console.error('Supabase RPC error on process_qr_entry:', error);
-        throw error;
+      if (!error && data) {
+        return data as ScanResponse;
       }
-      return data as ScanResponse;
-    } catch (err: unknown) {
-      console.warn('Supabase query failed, falling back to local verification:', (err as Error).message);
+    } catch {
+      // Fallback
+    }
+
+    // Direct Supabase query fallback in case RPC hasn't been updated
+    try {
+      const { data: att } = await supabase
+        .from('attendees')
+        .select('*')
+        .eq('ticket_id', cleanTicket)
+        .maybeSingle();
+
+      if (att) {
+        const now = new Date().toISOString();
+        if (att.status === 'revoked') {
+          return { success: false, result: 'revoked', message: 'TICKET REVOKED', attendee: att };
+        }
+        if (att.status === 'entered') {
+          return { success: false, result: 'already_entered', message: 'ALREADY ENTERED', attendee: att };
+        }
+        if (att.status === 'unapproved') {
+          return {
+            success: false,
+            result: 'not_approved',
+            message: 'TICKET NOT APPROVED / NOT DISTRIBUTED. Please approve pass at desk.',
+            attendee: att,
+          };
+        }
+        if (att.status === 'registered' || att.status === 'approved') {
+          await supabase
+            .from('attendees')
+            .update({ status: 'entered', entry_time: now, entry_gate: gate, entry_scanner: scannerId })
+            .eq('id', att.id);
+
+          await supabase.from('scan_logs').insert({
+            ticket_id: cleanTicket,
+            attendee_id: att.id,
+            scan_type: scanType,
+            result: 'valid',
+            scanner_id: scannerId,
+            gate,
+            scanned_at: now,
+          });
+
+          return {
+            success: true,
+            result: 'valid',
+            message: 'ENTRY APPROVED',
+            attendee: { ...att, status: 'entered', entry_time: now, entry_gate: gate, entry_scanner: scannerId },
+            scanned_at: now,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Supabase direct query fallback failed:', err);
     }
   }
 
   // Local Atomic Fallback
   return await localStore.runAtomic(async () => {
     const now = new Date().toISOString();
-    const attendee = localStore.attendees.get(cleanTicket);
+    const attendee = localStore.findAttendee(cleanTicket);
 
     if (!attendee) {
       const log: ScanLog = {
@@ -175,7 +224,29 @@ export async function recordQREntry({
       };
     }
 
-    if (attendee.status === 'registered') {
+    if (attendee.status === 'unapproved') {
+      const log: ScanLog = {
+        id: crypto.randomUUID(),
+        ticket_id: cleanTicket,
+        attendee_id: attendee.id,
+        scan_type: scanType,
+        result: 'not_approved',
+        scanner_id: scannerId,
+        gate,
+        scanned_at: now,
+      };
+      localStore.scanLogs.unshift(log);
+      return {
+        success: false,
+        result: 'not_approved',
+        message: 'TICKET NOT APPROVED / NOT DISTRIBUTED. Please approve pass at desk.',
+        attendee,
+        ticket_id: cleanTicket,
+        scanned_at: now,
+      };
+    }
+
+    if (attendee.status === 'registered' || attendee.status === 'approved') {
       attendee.status = 'entered';
       attendee.entry_time = now;
       attendee.entry_gate = gate;
@@ -224,7 +295,7 @@ export async function verifyQR({
   gate: string;
   scannerId: string;
 }): Promise<ScanResponse> {
-  const cleanTicket = ticketId.trim();
+  const cleanTicket = normalizeTicketId(ticketId);
   const supabase = getServiceSupabase();
 
   if (supabase) {
@@ -234,16 +305,54 @@ export async function verifyQR({
         p_gate: gate,
         p_scanner_id: scannerId,
       });
-      if (error) throw error;
-      return data as ScanResponse;
-    } catch (err) {
-      console.warn('Supabase verify RPC failed, falling back:', err);
+      if (!error && data) return data as ScanResponse;
+    } catch {
+      // Fallback
+    }
+
+    try {
+      const { data: att } = await supabase
+        .from('attendees')
+        .select('*')
+        .eq('ticket_id', cleanTicket)
+        .maybeSingle();
+
+      if (att) {
+        const now = new Date().toISOString();
+        const resStatus =
+          att.status === 'entered'
+            ? 'valid_entered'
+            : att.status === 'registered' || att.status === 'approved'
+            ? 'valid_not_entered'
+            : att.status === 'unapproved'
+            ? 'not_approved'
+            : 'revoked';
+
+        const msg =
+          att.status === 'entered'
+            ? 'VALID — ALREADY ENTERED'
+            : att.status === 'registered' || att.status === 'approved'
+            ? 'APPROVED — READY FOR ENTRY'
+            : att.status === 'unapproved'
+            ? 'TICKET NOT APPROVED / NOT DISTRIBUTED'
+            : 'TICKET REVOKED';
+
+        return {
+          success: true,
+          result: resStatus,
+          message: msg,
+          attendee: att,
+          scanned_at: now,
+        };
+      }
+    } catch {
+      // Fallback
     }
   }
 
   // Local Fallback
   const now = new Date().toISOString();
-  const attendee = localStore.attendees.get(cleanTicket);
+  const attendee = localStore.findAttendee(cleanTicket);
 
   if (!attendee) {
     localStore.scanLogs.unshift({
@@ -265,6 +374,15 @@ export async function verifyQR({
     };
   }
 
+  const resultStatus =
+    attendee.status === 'entered'
+      ? 'valid_entered'
+      : attendee.status === 'registered' || attendee.status === 'approved'
+      ? 'valid_not_entered'
+      : attendee.status === 'unapproved'
+      ? 'not_approved'
+      : 'revoked';
+
   localStore.scanLogs.unshift({
     id: crypto.randomUUID(),
     ticket_id: cleanTicket,
@@ -276,21 +394,16 @@ export async function verifyQR({
     scanned_at: now,
   });
 
-  const resultStatus =
-    attendee.status === 'entered'
-      ? 'valid_entered'
-      : attendee.status === 'registered'
-      ? 'valid_not_entered'
-      : 'revoked';
-
   return {
     success: true,
     result: resultStatus,
     message:
       attendee.status === 'entered'
-        ? 'VALID — ENTERED'
-        : attendee.status === 'registered'
-        ? 'VALID — NOT ENTERED'
+        ? 'VALID — ALREADY ENTERED'
+        : attendee.status === 'registered' || attendee.status === 'approved'
+        ? 'APPROVED — READY FOR ENTRY'
+        : attendee.status === 'unapproved'
+        ? 'TICKET NOT APPROVED / NOT DISTRIBUTED'
         : 'TICKET REVOKED',
     attendee,
     scanned_at: now,
@@ -825,4 +938,293 @@ export async function seedTestData(count = 1500): Promise<{ count: number }> {
 
   const res = await importAttendeesBatch(generated);
   return { count: res.imported + res.updated };
+}
+
+/**
+ * 10. GENERATE NUMBERED TICKET PASSES (e.g. 1 to 1500)
+ * Generates nameless passes with ticket IDs: NUV-KHL-0001 to NUV-KHL-1500
+ */
+export async function generateNumberedPasses({
+  count = 1500,
+  initialStatus = 'approved',
+}: {
+  count?: number;
+  initialStatus?: 'approved' | 'unapproved';
+}): Promise<{ generated: number; message: string }> {
+  const supabase = getServiceSupabase();
+  const passes: Attendee[] = [];
+  const now = new Date().toISOString();
+
+  for (let i = 1; i <= count; i++) {
+    const pad = String(i).padStart(4, '0');
+    passes.push({
+      id: crypto.randomUUID(),
+      ticket_id: generateNumberedTicketId(i),
+      pass_number: i,
+      name: `Pass #${pad}`,
+      enrollment: `PASS-${pad}`,
+      phone: '',
+      status: initialStatus,
+      created_at: now,
+      entry_time: null,
+      entry_gate: null,
+      entry_scanner: null,
+    });
+  }
+
+  // Insert into localStore
+  for (const p of passes) {
+    localStore.attendees.set(p.ticket_id, p);
+  }
+
+  // If Supabase connected, parallel batch upsert in chunks of 500
+  if (supabase) {
+    try {
+      const chunkSize = 500;
+      const chunks: Attendee[][] = [];
+      for (let i = 0; i < passes.length; i += chunkSize) {
+        chunks.push(passes.slice(i, i + chunkSize));
+      }
+      await Promise.all(
+        chunks.map((chunk) =>
+          supabase.from('attendees').upsert(chunk, { onConflict: 'ticket_id' })
+        )
+      );
+    } catch (err) {
+      console.warn('Supabase pass insertion warning:', err);
+    }
+  }
+
+  return {
+    generated: passes.length,
+    message: `Successfully generated ${passes.length} passes (Status: ${initialStatus}).`,
+  };
+}
+
+/**
+ * 11. APPROVE INDIVIDUAL TICKET (Distribution Desk)
+ */
+export async function approveTicket({
+  ticketIdOrPassNumber,
+  scannerId = 'DESK-1',
+  gate = 'Helpdesk',
+}: {
+  ticketIdOrPassNumber: string;
+  scannerId?: string;
+  gate?: string;
+}): Promise<ScanResponse> {
+  const clean = normalizeTicketId(ticketIdOrPassNumber);
+  const now = new Date().toISOString();
+  const supabase = getServiceSupabase();
+
+  if (supabase) {
+    try {
+      const { data: att } = await supabase
+        .from('attendees')
+        .select('*')
+        .or(`ticket_id.eq.${clean},enrollment.eq.${clean}`)
+        .maybeSingle();
+
+      if (att) {
+        if (att.status === 'entered') {
+          return {
+            success: false,
+            result: 'already_entered',
+            message: 'TICKET ALREADY ENTERED. Cannot modify approval.',
+            attendee: att,
+          };
+        }
+        if (att.status === 'revoked') {
+          return {
+            success: false,
+            result: 'revoked',
+            message: 'TICKET REVOKED. Cannot approve.',
+            attendee: att,
+          };
+        }
+        if (att.status === 'approved' || att.status === 'registered') {
+          return {
+            success: true,
+            result: 'valid',
+            message: `Pass is ALREADY APPROVED (Pass #${att.pass_number || clean}).`,
+            attendee: att,
+          };
+        }
+
+        // Approve it!
+        await supabase.from('attendees').update({ status: 'approved' }).eq('id', att.id);
+        await supabase.from('scan_logs').insert({
+          ticket_id: att.ticket_id,
+          attendee_id: att.id,
+          scan_type: 'approval',
+          result: 'valid',
+          scanner_id: scannerId,
+          gate,
+          scanned_at: now,
+        });
+
+        const updated = { ...att, status: 'approved' as const };
+        localStore.attendees.set(att.ticket_id, updated);
+
+        return {
+          success: true,
+          result: 'valid',
+          message: `SUCCESS! Pass #${att.pass_number || clean} is now APPROVED.`,
+          attendee: updated,
+          scanned_at: now,
+        };
+      }
+    } catch (err) {
+      console.warn('Supabase approve error, falling back:', err);
+    }
+  }
+
+  // Local fallback
+  return await localStore.runAtomic(async () => {
+    const attendee = localStore.findAttendee(clean);
+    if (!attendee) {
+      return {
+        success: false,
+        result: 'invalid',
+        message: `Ticket "${clean}" not found.`,
+      };
+    }
+
+    if (attendee.status === 'entered') {
+      return {
+        success: false,
+        result: 'already_entered',
+        message: 'This ticket was already used for entry.',
+        attendee,
+      };
+    }
+
+    if (attendee.status === 'revoked') {
+      return {
+        success: false,
+        result: 'revoked',
+        message: 'This ticket is revoked.',
+        attendee,
+      };
+    }
+
+    attendee.status = 'approved';
+    localStore.scanLogs.unshift({
+      id: crypto.randomUUID(),
+      ticket_id: attendee.ticket_id,
+      attendee_id: attendee.id,
+      scan_type: 'approval',
+      result: 'valid',
+      scanner_id: scannerId,
+      gate,
+      scanned_at: now,
+    });
+
+    return {
+      success: true,
+      result: 'valid',
+      message: `SUCCESS! ${attendee.name} is now APPROVED.`,
+      attendee,
+      scanned_at: now,
+    };
+  });
+}
+
+/**
+ * 12. APPROVE TICKET RANGE
+ */
+export async function approveTicketRange({
+  startNumber,
+  endNumber,
+}: {
+  startNumber: number;
+  endNumber: number;
+}): Promise<{ approved: number; message: string }> {
+  let count = 0;
+  const supabase = getServiceSupabase();
+  const ticketIds: string[] = [];
+
+  for (let i = startNumber; i <= endNumber; i++) {
+    const tid = generateNumberedTicketId(i);
+    ticketIds.push(tid);
+    const local = localStore.findAttendee(tid);
+    if (local && (local.status === 'unapproved' || local.status === 'registered')) {
+      local.status = 'approved';
+      count++;
+    }
+  }
+
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from('attendees')
+        .update({ status: 'approved' })
+        .in('ticket_id', ticketIds)
+        .neq('status', 'entered')
+        .select('id');
+      if (data) count = data.length;
+    } catch (err) {
+      console.warn('Supabase range approve error:', err);
+    }
+  }
+
+  return {
+    approved: count,
+    message: `Successfully approved ${count} passes (Range #${startNumber} to #${endNumber}).`,
+  };
+}
+
+/**
+ * 13. APPROVE ALL TICKETS
+ */
+export async function approveAllTickets(): Promise<{ approved: number; message: string }> {
+  let count = 0;
+  for (const a of localStore.attendees.values()) {
+    if (a.status === 'unapproved') {
+      a.status = 'approved';
+      count++;
+    }
+  }
+
+  const supabase = getServiceSupabase();
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from('attendees')
+        .update({ status: 'approved' })
+        .eq('status', 'unapproved')
+        .select('id');
+      if (data) count = data.length;
+    } catch (err) {
+      console.warn('Supabase approve all error:', err);
+    }
+  }
+
+  return {
+    approved: count,
+    message: `Successfully approved all unapproved passes (${count} total).`,
+  };
+}
+
+/**
+ * 14. CLEAR ALL DATA (Reset Database)
+ */
+export async function clearAllData(): Promise<{ success: boolean; message: string }> {
+  localStore.attendees.clear();
+  localStore.scanLogs = [];
+
+  const supabase = getServiceSupabase();
+  if (supabase) {
+    try {
+      await supabase.from('scan_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('attendees').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    } catch (err) {
+      console.warn('Supabase clear warning:', err);
+    }
+  }
+
+  return {
+    success: true,
+    message: 'Database cleared completely. Zero attendees and zero approved guests.',
+  };
 }

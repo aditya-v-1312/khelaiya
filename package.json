@@ -6,7 +6,9 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "lint": "next lint"
+    "lint": "next lint",
+    "generate-qrs": "node scripts/generate-qrs-to-disk.mjs 1500",
+    "clear-db": "node scripts/clear-db.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

@@ -37,6 +37,92 @@ export default function AttendeesPage() {
   const [manualGate, setManualGate] = useState('Gate 1');
   const [adminNote, setAdminNote] = useState('Manual verification at Helpdesk');
 
+  // Quick Pass Approval Toolbar
+  const [quickPassInput, setQuickPassInput] = useState('');
+  const [rangeStart, setRangeStart] = useState('1');
+  const [rangeEnd, setRangeEnd] = useState('1500');
+  const [isApproving, setIsApproving] = useState(false);
+
+  const handleQuickApprove = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickPassInput.trim()) return;
+    setIsApproving(true);
+    try {
+      const res = await fetch('/api/admin/passes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', ticketIdOrPassNumber: quickPassInput.trim() }),
+      });
+      const data = await res.json();
+      alert(data.message || (data.success ? 'Pass approved!' : 'Failed'));
+      if (data.success) {
+        setQuickPassInput('');
+        fetchAttendees();
+      }
+    } catch {
+      alert('Error approving pass');
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const handleRangeApprove = async () => {
+    if (!confirm(`Approve all passes from Pass #${rangeStart} to #${rangeEnd}?`)) return;
+    setIsApproving(true);
+    try {
+      const res = await fetch('/api/admin/passes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'approve_range',
+          startNumber: Number(rangeStart),
+          endNumber: Number(rangeEnd),
+        }),
+      });
+      const data = await res.json();
+      alert(data.message || 'Range approved');
+      fetchAttendees();
+    } catch {
+      alert('Error approving range');
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    if (!confirm('Approve ALL unapproved passes in the system?')) return;
+    setIsApproving(true);
+    try {
+      const res = await fetch('/api/admin/passes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve_all' }),
+      });
+      const data = await res.json();
+      alert(data.message || 'All passes approved');
+      fetchAttendees();
+    } catch {
+      alert('Error approving passes');
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const handleRowApprove = async (ticketId: string) => {
+    try {
+      const res = await fetch('/api/admin/passes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', ticketIdOrPassNumber: ticketId }),
+      });
+      const data = await res.json();
+      alert(data.message || 'Pass approved!');
+      fetchAttendees();
+    } catch {
+      alert('Error approving pass');
+    }
+  };
+
   const fetchAttendees = useCallback(async () => {
     setLoading(true);
     try {
@@ -165,13 +251,83 @@ export default function AttendeesPage() {
         </div>
       </div>
 
+      {/* 🎟️ TICKET DISTRIBUTION & APPROVAL TOOLBAR */}
+      <div className="bg-gradient-to-r from-emerald-500/10 via-amber-500/10 to-teal-500/10 border border-emerald-500/30 rounded-3xl p-4 shadow-xl space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">
+              Ticket Approval & Distribution Control
+            </span>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Approve passes individually or in bulk so they are permitted for 1-time gate entry.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Quick Single Pass Approve */}
+            <form onSubmit={handleQuickApprove} className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-xl p-1">
+              <input
+                type="text"
+                placeholder="Pass # (e.g. 42)"
+                value={quickPassInput}
+                onChange={(e) => setQuickPassInput(e.target.value)}
+                className="bg-transparent text-xs text-white placeholder-slate-500 px-2 py-1 w-28 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={isApproving || !quickPassInput.trim()}
+                className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-slate-950 font-bold rounded-lg text-xs transition"
+              >
+                Approve
+              </button>
+            </form>
+
+            {/* Range Approve */}
+            <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-xl p-1 text-xs">
+              <span className="text-slate-400 px-1 font-semibold">Pass:</span>
+              <input
+                type="number"
+                value={rangeStart}
+                onChange={(e) => setRangeStart(e.target.value)}
+                className="bg-slate-900 border border-white/10 rounded-lg text-white font-mono text-center w-14 py-1 focus:outline-none"
+              />
+              <span className="text-slate-500">to</span>
+              <input
+                type="number"
+                value={rangeEnd}
+                onChange={(e) => setRangeEnd(e.target.value)}
+                className="bg-slate-900 border border-white/10 rounded-lg text-white font-mono text-center w-14 py-1 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleRangeApprove}
+                disabled={isApproving}
+                className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 disabled:opacity-50 text-slate-950 font-bold rounded-lg text-xs transition"
+              >
+                Approve Range
+              </button>
+            </div>
+
+            {/* Approve All */}
+            <button
+              type="button"
+              onClick={handleApproveAll}
+              disabled={isApproving}
+              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl text-xs transition"
+            >
+              Approve All
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Filters and Search Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-900/60 p-4 rounded-2xl border border-white/10">
         <div className="sm:col-span-3 relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
           <input
             type="text"
-            placeholder="Search by Name, Enrollment, Ticket ID, or Phone..."
+            placeholder="Search by Name, Enrollment, Ticket ID, or Pass #..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -191,8 +347,10 @@ export default function AttendeesPage() {
             className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 font-semibold"
           >
             <option value="all">All Statuses</option>
-            <option value="registered">Registered (Pending)</option>
-            <option value="entered">Entered (Admitted)</option>
+            <option value="approved">Approved (Valid for Entry)</option>
+            <option value="unapproved">Unapproved (In Box)</option>
+            <option value="entered">Entered (Already In)</option>
+            <option value="registered">Registered</option>
             <option value="revoked">Revoked</option>
           </select>
         </div>
@@ -246,14 +404,19 @@ export default function AttendeesPage() {
                     <td className="py-3.5 px-4">
                       <span
                         className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase ${
-                          a.status === 'entered'
+                          a.status === 'approved'
                             ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : a.status === 'unapproved'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : a.status === 'entered'
+                            ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                             : a.status === 'registered'
                             ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
                             : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                         }`}
                       >
-                        {a.status === 'entered' && <CheckCircle2 className="w-3 h-3" />}
+                        {(a.status === 'approved' || a.status === 'entered') && <CheckCircle2 className="w-3 h-3" />}
+                        {a.status === 'unapproved' && <Clock className="w-3 h-3" />}
                         {a.status === 'registered' && <Clock className="w-3 h-3" />}
                         {a.status === 'revoked' && <Ban className="w-3 h-3" />}
                         {a.status}
@@ -275,6 +438,17 @@ export default function AttendeesPage() {
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {/* Quick Approve Button for Unapproved Passes */}
+                        {a.status === 'unapproved' && (
+                          <button
+                            onClick={() => handleRowApprove(a.ticket_id)}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs transition flex items-center gap-1"
+                            title="Approve pass for distribution"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                          </button>
+                        )}
+
                         {/* View Ticket Modal */}
                         <button
                           onClick={() => setViewTicketAttendee(a)}
@@ -285,11 +459,11 @@ export default function AttendeesPage() {
                         </button>
 
                         {/* Manual Entry Fallback Button */}
-                        {a.status === 'registered' && (
+                        {(a.status === 'registered' || a.status === 'approved') && (
                           <button
                             onClick={() => setManualEntryAttendee(a)}
                             className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs transition flex items-center gap-1"
-                            title="Manually admit attendee"
+                            title="Manually admit attendee at gate"
                           >
                             <UserCheck className="w-3.5 h-3.5" /> Admit
                           </button>

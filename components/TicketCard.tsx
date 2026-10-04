@@ -74,27 +74,50 @@ export default function TicketCard({ attendee, showDownload = true }: TicketCard
 
       {/* Ticket Details */}
       <div className="mt-5 space-y-3 text-center">
-        <div>
-          <span className="text-[11px] uppercase tracking-wider text-amber-300/70 block">
-            Attendee Name
-          </span>
-          <p className="text-xl font-bold text-white tracking-wide">{attendee.name}</p>
-        </div>
+        {attendee.name && !attendee.name.startsWith('Pass #') ? (
+          <div>
+            <span className="text-[11px] uppercase tracking-wider text-amber-300/70 block">
+              Attendee Name
+            </span>
+            <p className="text-xl font-bold text-white tracking-wide">{attendee.name}</p>
+          </div>
+        ) : (
+          <div>
+            <span className="text-[11px] uppercase tracking-wider text-amber-300/70 block">
+              Event Pass Badge
+            </span>
+            <p className="text-2xl font-black text-amber-300 tracking-wider">
+              {attendee.pass_number
+                ? `PASS #${String(attendee.pass_number).padStart(4, '0')}`
+                : attendee.name}
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 text-left">
           <div className="bg-white/5 rounded-xl p-2.5">
             <span className="text-[10px] uppercase tracking-wider text-amber-300/60 block">
-              Enrollment
+              {attendee.pass_number ? 'Pass Code' : 'Enrollment'}
             </span>
             <p className="text-sm font-semibold font-mono text-amber-200">
-              {attendee.enrollment}
+              {attendee.enrollment || `PASS-${String(attendee.pass_number || 1).padStart(4, '0')}`}
             </p>
           </div>
           <div className="bg-white/5 rounded-xl p-2.5">
             <span className="text-[10px] uppercase tracking-wider text-amber-300/60 block">
               Pass Status
             </span>
-            <div className="flex items-center gap-1 text-sm font-semibold capitalize text-emerald-300">
+            <div
+              className={`flex items-center gap-1 text-sm font-semibold capitalize ${
+                attendee.status === 'approved' || attendee.status === 'registered'
+                  ? 'text-emerald-300'
+                  : attendee.status === 'unapproved'
+                  ? 'text-amber-300'
+                  : attendee.status === 'entered'
+                  ? 'text-sky-300'
+                  : 'text-rose-400'
+              }`}
+            >
               <CheckCircle2 className="w-3.5 h-3.5" />
               {attendee.status}
             </div>
@@ -104,7 +127,7 @@ export default function TicketCard({ attendee, showDownload = true }: TicketCard
         {/* Ticket ID barcode tag */}
         <div className="mt-3 bg-black/40 border border-amber-400/30 rounded-xl py-2 px-3">
           <span className="text-[9px] uppercase tracking-widest text-slate-400 block">
-            Secure Ticket ID
+            Official Ticket ID
           </span>
           <p className="font-mono font-bold text-amber-400 tracking-widest text-sm">
             {attendee.ticket_id}
