@@ -513,11 +513,22 @@ export async function getAttendees({
       }
 
       const { data, count, error } = await query
-        .order('created_at', { ascending: false })
+        .order('ticket_id', { ascending: true })
         .range(offset, offset + limit - 1);
 
       if (!error && data) {
-        return { attendees: data as Attendee[], total: count || 0 };
+        const enriched = (data as Attendee[]).map((a) => {
+          let num = a.pass_number;
+          if (!num) {
+            const m =
+              a.enrollment?.match(/^PASS-(\d+)$/i) ||
+              a.name?.match(/^Pass #(\d+)$/i) ||
+              a.ticket_id?.match(/^NUV-KHL-(\d+)$/i);
+            if (m) num = parseInt(m[1], 10);
+          }
+          return { ...a, pass_number: num };
+        });
+        return { attendees: enriched, total: count || 0 };
       }
     } catch (err) {
       console.warn('Supabase getAttendees query failed, falling back:', err);
@@ -980,10 +991,16 @@ export async function generateNumberedPasses({
   // If Supabase connected, parallel batch upsert in chunks of 500
   if (supabase) {
     try {
+      const dbStatus = initialStatus === 'unapproved' ? 'revoked' : 'registered';
+      const supabasePayload = passes.map(({ pass_number, ...rest }) => ({
+        ...rest,
+        status: dbStatus,
+      }));
+
       const chunkSize = 500;
-      const chunks: Attendee[][] = [];
-      for (let i = 0; i < passes.length; i += chunkSize) {
-        chunks.push(passes.slice(i, i + chunkSize));
+      const chunks: typeof supabasePayload[] = [];
+      for (let i = 0; i < supabasePayload.length; i += chunkSize) {
+        chunks.push(supabasePayload.slice(i, i + chunkSize));
       }
       await Promise.all(
         chunks.map((chunk) =>
