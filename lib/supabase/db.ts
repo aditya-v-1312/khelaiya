@@ -370,6 +370,22 @@ export async function getAttendees({
   const supabase = getServiceSupabase();
 
   if (supabase) {
+    // 1. Try RPC first (SECURITY DEFINER bypasses RLS)
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_all_attendees', {
+        p_search: search,
+        p_status: status,
+        p_limit: limit,
+        p_offset: offset,
+      });
+
+      if (!rpcError && rpcData && Array.isArray(rpcData.attendees)) {
+        return { attendees: rpcData.attendees as Attendee[], total: rpcData.total || 0 };
+      }
+    } catch {
+      // Fallback to direct query
+    }
+
     try {
       let query = supabase.from('attendees').select('*', { count: 'exact' });
 
@@ -430,6 +446,23 @@ export async function importAttendeesBatch(
   let errors = 0;
 
   if (supabase) {
+    // 1. Try RPC first (SECURITY DEFINER bypasses RLS)
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('batch_import_attendees', {
+        p_rows: rows,
+      });
+
+      if (!rpcError && rpcData && typeof rpcData.imported === 'number') {
+        return {
+          imported: rpcData.imported,
+          updated: rpcData.updated || 0,
+          errors: rpcData.errors || 0,
+        };
+      }
+    } catch {
+      // Fallback to direct batch insert
+    }
+
     try {
       // Check existing enrollments
       const enrollments = rows.map((r) => r.enrollment);
