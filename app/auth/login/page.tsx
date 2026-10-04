@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Shield, QrCode, Lock, KeyRound, Sparkles, ArrowRight } from 'lucide-react';
+import { Shield, QrCode, Lock, KeyRound, Sparkles, ArrowRight, ArrowLeft } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,6 +31,15 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[#0e020a] text-white flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-md mb-3 flex justify-start">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-300 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 transition"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Portal
+        </Link>
+      </div>
+
       <div className="w-full max-w-md bg-slate-900/80 border border-amber-500/30 rounded-3xl p-8 backdrop-blur-xl shadow-2xl space-y-6">
         <div className="text-center space-y-2">
           <div className="w-12 h-12 bg-amber-500/20 border border-amber-500/40 rounded-2xl mx-auto flex items-center justify-center text-amber-400">

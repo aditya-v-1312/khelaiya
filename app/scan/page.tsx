@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ScannerComponent from '@/components/ScannerComponent';
 import { playSuccessSound, playDuplicateSound, playErrorSound } from '@/lib/audio';
 import { ScanResponse, GateId, ScannerId } from '@/lib/types';
+import Link from 'next/link';
 import {
   ShieldCheck,
   AlertTriangle,
@@ -15,6 +16,7 @@ import {
   Clock,
   Sparkles,
   ArrowRight,
+  ArrowLeft,
   RefreshCw,
 } from 'lucide-react';
 
@@ -150,20 +152,29 @@ export default function EntryScannerPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-between p-4 sm:p-6 select-none">
       {/* 1. TOP HEADER: Status, Identity, Network */}
-      <header className="w-full max-w-md flex items-center justify-between bg-white/5 border border-amber-500/20 backdrop-blur-md rounded-2xl px-4 py-3 shadow-lg">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-black text-amber-400 tracking-wider text-base">
-              NUV KHELAIYA
-            </span>
-            <span className="text-[10px] bg-amber-400/20 text-amber-300 font-bold px-2 py-0.5 rounded-full uppercase">
-              Gate Entry
-            </span>
-          </div>
-          <div className="text-xs text-slate-300 font-medium flex items-center gap-1.5 mt-0.5">
-            <span className="text-amber-200 font-bold">{gate}</span>
-            <span>·</span>
-            <span className="font-mono text-amber-300 font-bold">{scannerId}</span>
+      <header className="w-full max-w-md flex items-center justify-between bg-white/5 border border-amber-500/20 backdrop-blur-md rounded-2xl px-3 py-2.5 shadow-lg">
+        <div className="flex items-center gap-2.5">
+          <Link
+            href="/"
+            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 hover:text-white transition flex items-center justify-center shrink-0"
+            title="Back to Home / Portal"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-black text-amber-400 tracking-wider text-base">
+                NUV KHELAIYA
+              </span>
+              <span className="text-[10px] bg-amber-400/20 text-amber-300 font-bold px-2 py-0.5 rounded-full uppercase">
+                Gate Entry
+              </span>
+            </div>
+            <div className="text-xs text-slate-300 font-medium flex items-center gap-1.5 mt-0.5">
+              <span className="text-amber-200 font-bold">{gate}</span>
+              <span>·</span>
+              <span className="font-mono text-amber-300 font-bold">{scannerId}</span>
+            </div>
           </div>
         </div>
 

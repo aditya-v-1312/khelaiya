@@ -34,9 +34,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="text-xs font-semibold text-amber-300 hover:text-white flex items-center gap-1 transition"
+              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 hover:text-white font-bold text-xs flex items-center gap-1.5 transition border border-white/10"
+              title="Return to Main Portal"
             >
-              <ArrowLeft className="w-3.5 h-3.5" /> Portal
+              <ArrowLeft className="w-3.5 h-3.5" /> Back to Portal
             </Link>
             <div className="h-4 w-px bg-white/20" />
             <div className="flex items-center gap-2">

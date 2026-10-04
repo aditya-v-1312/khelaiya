@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import JSZip from 'jszip';
 import { Attendee } from '@/lib/types';
 import TicketCard from '@/components/TicketCard';
+import Link from 'next/link';
 import {
   QrCode,
   Download,
@@ -15,6 +16,7 @@ import {
   AlertTriangle,
   Sparkles,
   CheckCircle2,
+  ArrowLeft,
 } from 'lucide-react';
 
 export default function QRManagementPage() {
@@ -110,6 +112,14 @@ export default function QRManagementPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Link
+              href="/admin"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-300 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 transition"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
+            </Link>
+          </div>
           <h1 className="text-2xl sm:text-3xl font-black text-amber-400 tracking-wide">
             QR Generation & Ticket Badges
           </h1>

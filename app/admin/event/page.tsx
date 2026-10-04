@@ -60,6 +60,16 @@ export default function LiveEventMonitorPage() {
 
   return (
     <div className="space-y-6">
+      {/* Back to Dashboard */}
+      <div className="flex items-center gap-2">
+        <Link
+          href="/admin"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-300 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 transition"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
+        </Link>
+      </div>
+
       {/* High-Contrast Stage Top Bar */}
       <div className="bg-gradient-to-r from-[#2c0520] via-[#1a0214] to-[#0c0009] border border-amber-500/30 rounded-3xl p-6 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">

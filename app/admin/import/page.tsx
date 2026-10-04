@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import Papa from 'papaparse';
 import {
   UploadCloud,
@@ -8,6 +9,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
+  ArrowLeft,
   RefreshCw,
   FileText,
   ClipboardPaste,
@@ -255,6 +257,14 @@ vaibhavi shah,25001272,8347031369,,,,`;
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Link
+            href="/admin"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-300 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 transition"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
+          </Link>
+        </div>
         <h1 className="text-2xl sm:text-3xl font-black text-amber-400 tracking-wide">
           Google Sheets & CSV Attendee Import
         </h1>

@@ -62,20 +62,20 @@ export default function VerificationPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center p-4 sm:p-6">
       {/* Top Header */}
-      <header className="w-full max-w-md flex items-center justify-between mb-4">
+      <header className="w-full max-w-md flex items-center justify-between mb-4 bg-white/5 border border-amber-500/20 backdrop-blur-md rounded-2xl px-3 py-2.5">
         <Link
           href="/"
-          className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 hover:text-amber-200 transition"
+          className="p-2 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 hover:text-white transition flex items-center gap-1.5 text-xs font-bold"
+          title="Back to Home / Portal"
         >
-          <ArrowLeft className="w-4 h-4" /> Home
+          <ArrowLeft className="w-4 h-4" /> Back to Portal
         </Link>
-        <div className="text-center">
-          <h1 className="text-base font-black text-amber-400 uppercase tracking-wider">
+        <div className="text-right">
+          <h1 className="text-sm font-black text-amber-400 uppercase tracking-wider">
             Verification Scanner
           </h1>
-          <p className="text-[11px] text-slate-400">Read-Only Ticket Inspector</p>
+          <p className="text-[10px] text-slate-400 font-semibold">Read-Only Mode</p>
         </div>
-        <div className="w-12" />
       </header>
 
       {/* Safety Notice */}
