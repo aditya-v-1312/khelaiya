@@ -92,6 +92,19 @@ export default function ScannerComponent({
     }
   }, []);
 
+  const getOrCreateScanner = useCallback(() => {
+    const container = document.getElementById(containerId);
+    if (!container) return null;
+
+    if (!html5QrCodeRef.current) {
+      html5QrCodeRef.current = new Html5Qrcode(containerId, {
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        verbose: false,
+      });
+    }
+    return html5QrCodeRef.current;
+  }, []);
+
   const startScanner = useCallback(
     async (cameraId?: string) => {
       if (isStartingRef.current) return;
@@ -102,37 +115,23 @@ export default function ScannerComponent({
       try {
         if (!isMountedRef.current) return;
 
-        const container = document.getElementById(containerId);
-        if (!container) {
+        const scanner = getOrCreateScanner();
+        if (!scanner) {
           isStartingRef.current = false;
           setIsInitializing(false);
           return;
         }
 
-        // Initialize or reuse Html5Qrcode instance
-        if (!html5QrCodeRef.current) {
-          html5QrCodeRef.current = new Html5Qrcode(containerId, {
-            formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-            verbose: false,
-          });
-        }
-
-        const scanner = html5QrCodeRef.current;
         if (scanner.isScanning) {
           try {
             await scanner.stop();
           } catch {}
         }
 
-        // iOS COMPATIBLE CONFIG:
-        // NEVER pass aspectRatio: 1.0 because iOS Safari camera hardware rejects it!
+        // Standard QR box config WITHOUT restrictive hardware aspectRatio constraint
         const qrConfig = {
           fps: 15,
-          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const boxSize = Math.max(180, Math.min(270, Math.floor(minEdge * 0.72)));
-            return { width: boxSize, height: boxSize };
-          },
+          qrbox: { width: 250, height: 250 },
         };
 
         const successCallback = (decodedText: string) => {
@@ -140,11 +139,14 @@ export default function ScannerComponent({
         };
         const errorCallback = () => {};
 
-        // Camera start sequence optimized for iOS and Android
+        // Camera start sequence compatible with Android and iOS Safari:
+        // 1. If explicit cameraId requested, pass string directly
+        // 2. Otherwise use standard { facingMode: 'environment' } (rear camera)
+        // 3. Fallback to { facingMode: 'user' } (front/webcam)
         if (cameraId) {
           try {
             await scanner.start(
-              { deviceId: { exact: cameraId } },
+              cameraId,
               qrConfig,
               successCallback,
               errorCallback
@@ -152,50 +154,38 @@ export default function ScannerComponent({
           } catch (camErr) {
             console.warn('Start with explicit camera ID failed, attempting environment:', camErr);
             await scanner.start(
-              { facingMode: { ideal: 'environment' } },
+              { facingMode: 'environment' },
               qrConfig,
               successCallback,
               errorCallback
             );
           }
         } else {
-          // Default: Start directly with environment rear camera (works best with iOS Safari)
           try {
             await scanner.start(
-              { facingMode: { ideal: 'environment' } },
+              { facingMode: 'environment' },
               qrConfig,
               successCallback,
               errorCallback
             );
           } catch (envErr) {
-            console.warn('ideal environment camera failed, trying simple environment:', envErr);
-            try {
-              await scanner.start(
-                { facingMode: 'environment' },
-                qrConfig,
-                successCallback,
-                errorCallback
-              );
-            } catch (simpleEnvErr) {
-              console.warn('Simple environment failed, trying user-facing camera:', simpleEnvErr);
-              await scanner.start(
-                { facingMode: 'user' },
-                qrConfig,
-                successCallback,
-                errorCallback
-              );
-            }
+            console.warn('Environment rear camera failed, trying user camera:', envErr);
+            await scanner.start(
+              { facingMode: 'user' },
+              qrConfig,
+              successCallback,
+              errorCallback
+            );
           }
         }
 
-        // Apply iOS Safari video element inline attributes
         enforceIosVideoAttributes();
 
         if (isMountedRef.current) {
           setScannerStarted(true);
           setIsInitializing(false);
 
-          // Now that camera permission is active, enumerate cameras for the switcher
+          // Enumerate cameras once permission is active
           try {
             const devices = await Html5Qrcode.getCameras();
             if (isMountedRef.current && devices && devices.length > 0) {
@@ -227,20 +217,24 @@ export default function ScannerComponent({
       } catch (err: unknown) {
         console.error('Error starting camera:', err);
         if (isMountedRef.current) {
-          const errMsg = (err as Error)?.message || 'Failed to start camera.';
+          const errMsg =
+            typeof err === 'string'
+              ? err
+              : (err as Error)?.message || 'Failed to start camera.';
+
           if (
             errMsg.includes('NotAllowedError') ||
             errMsg.includes('Permission') ||
             errMsg.includes('denied')
           ) {
             setCameraError(
-              'Camera access was not granted. On iPhone, tap "Allow" when prompted, or check Safari Settings > Camera > Allow.'
+              'Camera access was not granted. Please allow camera permissions in your browser (look for the camera or lock icon in your address bar).'
             );
           } else if (errMsg.includes('NotFoundError') || errMsg.includes('no camera')) {
-            setCameraError('No camera detected. You can test by uploading a QR image or typing the Pass code.');
+            setCameraError('No camera detected on this device. You can test by uploading a QR image or typing the Pass code.');
           } else {
             setCameraError(
-              `Camera notice: ${errMsg}. Please tap "Retry Camera" or grant browser permission.`
+              `Camera notice: ${errMsg}. Please tap "Retry Camera" or grant permissions.`
             );
           }
           setScannerStarted(false);
@@ -250,7 +244,7 @@ export default function ScannerComponent({
         isStartingRef.current = false;
       }
     },
-    [handleScanSuccess, enforceIosVideoAttributes]
+    [getOrCreateScanner, handleScanSuccess, enforceIosVideoAttributes]
   );
 
   const toggleTorch = async () => {
@@ -272,13 +266,9 @@ export default function ScannerComponent({
     if (!file) return;
 
     try {
-      if (!html5QrCodeRef.current) {
-        html5QrCodeRef.current = new Html5Qrcode(containerId, {
-          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-          verbose: false,
-        });
-      }
-      const decodedText = await html5QrCodeRef.current.scanFile(file, true);
+      const scanner = getOrCreateScanner();
+      if (!scanner) return;
+      const decodedText = await scanner.scanFile(file, true);
       if (decodedText) {
         handleScanSuccess(decodedText);
       }
@@ -303,7 +293,7 @@ export default function ScannerComponent({
   useEffect(() => {
     isMountedRef.current = true;
 
-    // Direct start on mount
+    // Start camera on mount
     startScanner();
 
     // Periodic check to ensure iOS Safari keeps playsinline
@@ -330,11 +320,12 @@ export default function ScannerComponent({
           isDeskMode ? 'border-purple-500/40 shadow-purple-950/30' : 'border-amber-500/40 shadow-amber-950/30'
         }`}
       >
-        {/* Inline CSS to enforce iOS Safari video dimensions */}
+        {/* Inline CSS to enforce video dimensions across iOS and Android */}
         <style jsx global>{`
           #qr-reader-container {
             width: 100% !important;
             height: 100% !important;
+            min-height: 280px !important;
             position: relative !important;
             border: none !important;
           }
@@ -350,7 +341,7 @@ export default function ScannerComponent({
         `}</style>
 
         {/* Html5Qrcode target element */}
-        <div id={containerId} className="w-full h-full object-cover" />
+        <div id={containerId} className="w-full h-full min-h-[280px]" />
 
         {/* Target Frame Overlay */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -408,13 +399,13 @@ export default function ScannerComponent({
           </div>
         )}
 
-        {/* Initializing / Tap to Start Overlay for iOS user gesture */}
+        {/* Initializing / Tap to Start Overlay */}
         {!scannerStarted && !cameraError && (
-          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-15 space-y-3">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-10 space-y-3">
             {isInitializing ? (
               <>
                 <div
-                  className={`w-12 h-12 border-3 border-t-transparent rounded-full animate-spin ${
+                  className={`w-10 h-10 border-3 border-t-transparent rounded-full animate-spin ${
                     isDeskMode ? 'border-purple-400' : 'border-amber-400'
                   }`}
                 />
@@ -424,7 +415,7 @@ export default function ScannerComponent({
 
             <button
               onClick={() => startScanner(selectedCameraId)}
-              className={`px-5 py-3 rounded-2xl font-bold text-xs shadow-xl transition flex items-center gap-2 ${
+              className={`px-5 py-3 rounded-2xl font-bold text-xs shadow-xl transition flex items-center gap-2 cursor-pointer ${
                 isDeskMode
                   ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/40'
                   : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-900/40'
@@ -433,7 +424,7 @@ export default function ScannerComponent({
               <Play className="w-4 h-4 fill-current" /> Tap to Enable Camera
             </button>
             <p className="text-slate-400 text-[11px] max-w-xs">
-              If prompted on iPhone, tap <strong>Allow</strong> to permit camera scanning.
+              When prompted, tap <strong>Allow</strong> to start scanning passes.
             </p>
           </div>
         )}
@@ -450,7 +441,7 @@ export default function ScannerComponent({
             <div className="flex flex-col gap-2 w-full max-w-xs">
               <button
                 onClick={() => startScanner(selectedCameraId)}
-                className={`w-full py-2.5 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 ${
+                className={`w-full py-2.5 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer ${
                   isDeskMode
                     ? 'bg-purple-600 hover:bg-purple-500 text-white'
                     : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
@@ -461,14 +452,14 @@ export default function ScannerComponent({
 
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-2.5 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 <ImageIcon className="w-4 h-4 text-emerald-400" /> Upload QR Photo
               </button>
 
               <button
                 onClick={() => setShowManualInput(true)}
-                className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-slate-300 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-slate-300 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Keyboard className="w-4 h-4 text-slate-400" /> Type Pass Code
               </button>
@@ -518,7 +509,7 @@ export default function ScannerComponent({
 
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl flex items-center gap-1.5 text-xs font-semibold transition"
+          className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer"
           title="Scan QR from photo"
         >
           <ImageIcon className="w-4 h-4 text-emerald-400" /> Photo
@@ -526,7 +517,7 @@ export default function ScannerComponent({
 
         <button
           onClick={() => setShowManualInput((prev) => !prev)}
-          className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl flex items-center gap-1.5 text-xs font-semibold transition"
+          className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer"
           title="Manual code entry"
         >
           <Keyboard className="w-4 h-4 text-amber-300" /> Type ID
@@ -534,7 +525,7 @@ export default function ScannerComponent({
 
         <button
           onClick={() => (scannerStarted ? stopScanner() : startScanner(selectedCameraId))}
-          className={`ml-auto p-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${
+          className={`ml-auto p-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
             scannerStarted
               ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30'
               : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30'
