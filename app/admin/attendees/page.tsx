@@ -405,24 +405,26 @@ export default function AttendeesPage() {
                         className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase ${
                           a.status === 'entered'
                             ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                            : a.status === 'unactivated' || a.status === 'unapproved'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : a.status === 'activated'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                             : a.status === 'revoked'
                             ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                         }`}
                       >
                         {a.status === 'entered' && <CheckCircle2 className="w-3 h-3" />}
-                        {(a.status === 'unactivated' || a.status === 'unapproved') && <Clock className="w-3 h-3" />}
+                        {a.status === 'activated' && <CheckCircle2 className="w-3 h-3" />}
                         {a.status === 'revoked' && <Ban className="w-3 h-3" />}
-                        {(a.status === 'activated' || a.status === 'registered' || a.status === 'approved') && <CheckCircle2 className="w-3 h-3" />}
-                        {a.status === 'unactivated' || a.status === 'unapproved'
-                          ? 'Unactivated'
-                          : a.status === 'entered'
+                        {a.status !== 'entered' && a.status !== 'activated' && a.status !== 'revoked' && (
+                          <Clock className="w-3 h-3" />
+                        )}
+                        {a.status === 'entered'
                           ? 'Entered'
+                          : a.status === 'activated'
+                          ? 'Activated'
                           : a.status === 'revoked'
                           ? 'Revoked'
-                          : 'Activated'}
+                          : 'Unactivated'}
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-xs text-slate-400">
@@ -442,7 +444,7 @@ export default function AttendeesPage() {
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {/* Quick Activate Button for Unactivated Passes */}
-                        {(a.status === 'unactivated' || a.status === 'unapproved') && (
+                        {a.status !== 'entered' && a.status !== 'activated' && a.status !== 'revoked' && (
                           <button
                             onClick={() => handleRowApprove(a.ticket_id)}
                             className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs transition flex items-center gap-1"
@@ -462,7 +464,7 @@ export default function AttendeesPage() {
                         </button>
 
                         {/* Manual Entry Fallback Button */}
-                        {(a.status === 'registered' || a.status === 'approved' || a.status === 'activated') && (
+                        {a.status === 'activated' && (
                           <button
                             onClick={() => setManualEntryAttendee(a)}
                             className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs transition flex items-center gap-1"

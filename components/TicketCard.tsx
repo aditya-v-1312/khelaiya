@@ -111,21 +111,21 @@ export default function TicketCard({ attendee, showDownload = true }: TicketCard
               className={`flex items-center gap-1 text-sm font-semibold capitalize ${
                 attendee.status === 'entered'
                   ? 'text-sky-300'
-                  : attendee.status === 'unactivated' || attendee.status === 'unapproved'
-                  ? 'text-amber-300'
+                  : attendee.status === 'activated'
+                  ? 'text-emerald-300'
                   : attendee.status === 'revoked'
                   ? 'text-rose-400'
-                  : 'text-emerald-300'
+                  : 'text-amber-300'
               }`}
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
               {attendee.status === 'entered'
                 ? 'Entered'
-                : attendee.status === 'unactivated' || attendee.status === 'unapproved'
-                ? 'Awaiting Activation'
+                : attendee.status === 'activated'
+                ? 'Activated'
                 : attendee.status === 'revoked'
                 ? 'Revoked'
-                : 'Activated'}
+                : 'Awaiting Activation'}
             </div>
           </div>
         </div>

@@ -22,10 +22,13 @@ export function resolvePassStatus(
   att: Partial<Attendee> | null | undefined
 ): 'unactivated' | 'activated' | 'entered' | 'revoked' {
   if (!att) return 'unactivated';
+
+  // 1. Single entry already used
   if (att.status === 'entered' || att.entry_time) {
     return 'entered';
   }
-  // Only consider genuinely revoked if not an unactivated placeholder
+
+  // 2. Explicitly revoked tickets
   if (
     att.status === 'revoked' &&
     att.entry_scanner !== 'UNACTIVATED' &&
@@ -34,15 +37,14 @@ export function resolvePassStatus(
   ) {
     return 'revoked';
   }
-  if (
-    att.status === 'unactivated' ||
-    att.status === 'unapproved' ||
-    att.entry_scanner === 'UNACTIVATED' ||
-    att.status === 'revoked'
-  ) {
-    return 'unactivated';
+
+  // 3. Activated passes (Scanned at distribution desk)
+  if (att.entry_scanner === 'ACTIVATED' || att.status === 'activated') {
+    return 'activated';
   }
-  return 'activated';
+
+  // 4. Default: All passes start as UNACTIVATED (Awaiting Scan 1 at distribution desk)
+  return 'unactivated';
 }
 
 // In-memory fallback database for local development/testing when Supabase env vars are not set
@@ -530,7 +532,13 @@ export async function getAttendees({
       let query = supabase.from('attendees').select('*', { count: 'exact' });
 
       if (status && status !== 'all') {
-        query = query.eq('status', status);
+        if (status === 'unactivated') {
+          query = query.eq('status', 'registered').eq('entry_scanner', 'UNACTIVATED');
+        } else if (status === 'activated') {
+          query = query.eq('status', 'registered').eq('entry_scanner', 'ACTIVATED');
+        } else {
+          query = query.eq('status', status);
+        }
       }
 
       if (search) {
@@ -553,7 +561,7 @@ export async function getAttendees({
               a.ticket_id?.match(/^NUV-KHL-(\d+)$/i);
             if (m) num = parseInt(m[1], 10);
           }
-          return { ...a, pass_number: num };
+          return { ...a, pass_number: num, status: resolvePassStatus(a) };
         });
         return { attendees: enriched, total: count || 0 };
       }
@@ -566,7 +574,7 @@ export async function getAttendees({
   let list = Array.from(localStore.attendees.values());
 
   if (status && status !== 'all') {
-    list = list.filter((a) => a.status === status);
+    list = list.filter((a) => resolvePassStatus(a) === status);
   }
 
   if (search) {
@@ -581,7 +589,10 @@ export async function getAttendees({
   }
 
   const total = list.length;
-  const paginated = list.slice(offset, offset + limit);
+  const paginated = list.slice(offset, offset + limit).map((a) => ({
+    ...a,
+    status: resolvePassStatus(a),
+  }));
   return { attendees: paginated, total };
 }
 

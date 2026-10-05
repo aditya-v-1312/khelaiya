@@ -53,7 +53,10 @@ export async function POST(req: NextRequest) {
 
     if (action === 'generate') {
       const count = Number(body.count) || 1500;
-      const initialStatus = body.initialStatus === 'unapproved' ? 'unapproved' : 'approved';
+      const initialStatus =
+        body.initialStatus === 'activated' || body.initialStatus === 'approved'
+          ? 'activated'
+          : 'unactivated';
       
       // 1. Save passes to database
       const result = await generateNumberedPasses({ count, initialStatus });
