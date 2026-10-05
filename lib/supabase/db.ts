@@ -522,7 +522,18 @@ export async function getAttendees({
       });
 
       if (!rpcError && rpcData && Array.isArray(rpcData.attendees)) {
-        return { attendees: rpcData.attendees as Attendee[], total: rpcData.total || 0 };
+        const enriched = (rpcData.attendees as Attendee[]).map((a) => {
+          let num = a.pass_number;
+          if (!num) {
+            const m =
+              a.enrollment?.match(/^PASS-(\d+)$/i) ||
+              a.name?.match(/^Pass #(\d+)$/i) ||
+              a.ticket_id?.match(/^NUV-KHL-(\d+)$/i);
+            if (m) num = parseInt(m[1], 10);
+          }
+          return { ...a, pass_number: num, status: resolvePassStatus(a) };
+        });
+        return { attendees: enriched, total: rpcData.total || 0 };
       }
     } catch {
       // Fallback to direct query
