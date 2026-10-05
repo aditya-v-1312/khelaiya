@@ -142,6 +142,13 @@ export default function QRManagementPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            href="/admin/template"
+            className="px-4 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white font-black rounded-xl text-xs sm:text-sm transition shadow-lg flex items-center gap-2"
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            Ticket Template Studio
+          </Link>
           <button
             onClick={handleBulkZipDownload}
             disabled={isZipping || loading || attendees.length === 0}
@@ -151,6 +158,25 @@ export default function QRManagementPage() {
             {isZipping ? zipProgress : `Download All ${attendees.length} QRs (ZIP)`}
           </button>
         </div>
+      </div>
+
+      {/* Banner for Ticket Template Studio */}
+      <div className="bg-gradient-to-r from-purple-950/60 via-indigo-950/60 to-slate-900 border border-purple-500/40 rounded-3xl p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[11px] font-bold border border-purple-500/30">
+            <Sparkles className="w-3 h-3 text-amber-400" /> NEW: Custom Ticket Template Studio
+          </div>
+          <h2 className="text-lg font-black text-white">Have a Ticket Artwork Design?</h2>
+          <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
+            Upload your custom graphic design, interactively position & resize the QR code and pass number, and export high-resolution composite tickets ready for printing.
+          </p>
+        </div>
+        <Link
+          href="/admin/template"
+          className="whitespace-nowrap px-5 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-black rounded-xl text-xs sm:text-sm transition shadow-lg flex items-center gap-2 self-start md:self-auto"
+        >
+          Open Template Studio →
+        </Link>
       </div>
 
       {/* Safety Notice & Status (Section 24) */}

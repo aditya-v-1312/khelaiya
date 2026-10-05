@@ -19,10 +19,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const navItems = [
     { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/admin/event', label: 'Live Monitor', icon: Activity },
-    { href: '/admin/attendees', label: 'Attendees & Manual Entry', icon: Users },
-    { href: '/admin/import', label: 'CSV Import', icon: UploadCloud },
+    { href: '/admin/template', label: 'Template Studio', icon: Sparkles },
     { href: '/admin/qr', label: 'QR Tickets', icon: QrCode },
+    { href: '/admin/attendees', label: 'Attendees & Manual Entry', icon: Users },
+    { href: '/admin/event', label: 'Live Monitor', icon: Activity },
+    { href: '/admin/import', label: 'CSV Import', icon: UploadCloud },
     { href: '/admin/logs', label: 'Audit Logs', icon: FileText },
   ];
 
