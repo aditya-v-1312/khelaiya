@@ -4,6 +4,10 @@ import { Attendee, ScanLog, ScanResponse } from '../types';
 
 export function normalizeTicketId(input: string): string {
   const trimmed = input.trim();
+  const nuvMatch = trimmed.match(/(NUV-KHL-\d{3,5})/i);
+  if (nuvMatch) {
+    return nuvMatch[1].toUpperCase();
+  }
   if (/^\d{1,5}$/.test(trimmed)) {
     return `NUV-KHL-${trimmed.padStart(4, '0')}`;
   }
@@ -118,7 +122,7 @@ export async function recordQREntry({
       const { data: att } = await supabase
         .from('attendees')
         .select('*')
-        .eq('ticket_id', cleanTicket)
+        .or(`ticket_id.eq.${cleanTicket},enrollment.eq.${cleanTicket}`)
         .maybeSingle();
 
       if (att) {

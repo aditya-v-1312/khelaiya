@@ -9,10 +9,8 @@ import {
   ShieldCheck,
   AlertTriangle,
   XCircle,
-  Wifi,
   WifiOff,
   Settings,
-  UserCheck,
   Clock,
   Sparkles,
   ArrowRight,
@@ -39,6 +37,38 @@ export default function EntryScannerPage() {
   const [networkError, setNetworkError] = useState<string | null>(null);
 
   const resetTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const dutyModeRef = useRef<'entry' | 'distribution'>('entry');
+  const gateRef = useRef<GateId>(gate);
+  const scannerIdRef = useRef<ScannerId>(scannerId);
+
+  // Keep refs continually updated so callbacks never read stale closure values
+  useEffect(() => {
+    dutyModeRef.current = dutyMode;
+  }, [dutyMode]);
+
+  useEffect(() => {
+    gateRef.current = gate;
+  }, [gate]);
+
+  useEffect(() => {
+    scannerIdRef.current = scannerId;
+  }, [scannerId]);
+
+  // Mode switcher handler with immediate ref and localStorage update
+  const selectDutyMode = (mode: 'entry' | 'distribution') => {
+    dutyModeRef.current = mode;
+    setDutyMode(mode);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('khelaiya_duty_mode', mode);
+    }
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    }
+    setLastResult(null);
+    setNetworkError(null);
+    setIsProcessing(false);
+  };
 
   // Initialize configuration from localStorage
   useEffect(() => {
@@ -49,7 +79,9 @@ export default function EntryScannerPage() {
 
       if (savedGate && savedScanner) {
         setGate(savedGate);
+        gateRef.current = savedGate;
         setScannerId(savedScanner);
+        scannerIdRef.current = savedScanner;
         setIsConfigured(true);
       } else {
         setShowConfigModal(true);
@@ -60,8 +92,9 @@ export default function EntryScannerPage() {
       }
 
       const savedMode = localStorage.getItem('khelaiya_duty_mode') as 'entry' | 'distribution';
-      if (savedMode) {
+      if (savedMode === 'distribution' || savedMode === 'entry') {
         setDutyMode(savedMode);
+        dutyModeRef.current = savedMode;
       }
 
       // Online/Offline listener
@@ -81,7 +114,9 @@ export default function EntryScannerPage() {
 
   const saveConfiguration = (g: GateId, s: ScannerId) => {
     setGate(g);
+    gateRef.current = g;
     setScannerId(s);
+    scannerIdRef.current = s;
     setIsConfigured(true);
     setShowConfigModal(false);
     localStorage.setItem('khelaiya_gate', g);
@@ -98,7 +133,7 @@ export default function EntryScannerPage() {
     setIsProcessing(false);
   }, []);
 
-  const handleScan = async (decodedText: string) => {
+  const handleScan = useCallback(async (decodedText: string) => {
     if (isProcessing) return;
 
     if (!navigator.onLine) {
@@ -111,8 +146,12 @@ export default function EntryScannerPage() {
     setIsProcessing(true);
     setNetworkError(null);
 
-    // Distribution Desk Approval Mode
-    if (dutyMode === 'distribution') {
+    const currentMode = dutyModeRef.current;
+    const currentGate = gateRef.current;
+    const currentScanner = scannerIdRef.current;
+
+    // 1. DISTRIBUTION DESK MODE (SCAN 1: ACTIVATION)
+    if (currentMode === 'distribution') {
       try {
         const res = await fetch('/api/admin/passes', {
           method: 'POST',
@@ -120,8 +159,8 @@ export default function EntryScannerPage() {
           body: JSON.stringify({
             action: 'approve',
             ticketIdOrPassNumber: decodedText,
-            scannerId,
-            gate,
+            scannerId: currentScanner,
+            gate: currentGate,
           }),
         });
 
@@ -152,15 +191,15 @@ export default function EntryScannerPage() {
       return;
     }
 
-    // Standard Gate Entry Mode (1-time check)
+    // 2. GATE ENTRY MODE (SCAN 2: SINGLE ENTRY)
     try {
       const res = await fetch('/api/scan/entry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ticketId: decodedText,
-          gate,
-          scannerId,
+          gate: currentGate,
+          scannerId: currentScanner,
         }),
       });
 
@@ -178,13 +217,17 @@ export default function EntryScannerPage() {
           localStorage.setItem('khelaiya_scancount', next.toString());
           return next;
         });
-      } else if (data.result === 'already_entered' || data.result === 'not_approved') {
+      } else if (
+        data.result === 'already_entered' ||
+        data.result === 'not_activated' ||
+        data.result === 'not_approved'
+      ) {
         playDuplicateSound();
       } else {
         playErrorSound();
       }
 
-      // Automatically reset screen after 3.2 seconds to scan next attendee
+      // Automatically reset screen after 3.2 seconds
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       resetTimerRef.current = setTimeout(() => {
         clearResultAndResume();
@@ -196,7 +239,9 @@ export default function EntryScannerPage() {
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [isProcessing, clearResultAndResume]);
+
+  const isDeskMode = dutyMode === 'distribution';
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-between p-4 sm:p-6 select-none">
@@ -215,22 +260,15 @@ export default function EntryScannerPage() {
               <span className="font-black text-amber-400 tracking-wider text-base">
                 NUV KHELAIYA
               </span>
-              <button
-                type="button"
-                onClick={() => {
-                  const nextMode = dutyMode === 'entry' ? 'distribution' : 'entry';
-                  setDutyMode(nextMode);
-                  localStorage.setItem('khelaiya_duty_mode', nextMode);
-                }}
+              <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase transition ${
-                  dutyMode === 'distribution'
+                  isDeskMode
                     ? 'bg-purple-500/30 text-purple-200 border border-purple-400/40'
-                    : 'bg-amber-400/20 text-amber-300'
+                    : 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
                 }`}
-                title="Click to toggle between Gate Entry and Desk Approval"
               >
-                {dutyMode === 'distribution' ? 'Desk Approval' : 'Gate Entry'}
-              </button>
+                {isDeskMode ? 'Desk Activation' : 'Gate Entry'}
+              </span>
             </div>
             <div className="text-xs text-slate-300 font-medium flex items-center gap-1.5 mt-0.5">
               <span className="text-amber-200 font-bold">{gate}</span>
@@ -272,18 +310,16 @@ export default function EntryScannerPage() {
         </div>
       </header>
 
-      {/* 1.5 DUTY MODE SELECTOR TABS (Scan 1 vs Scan 2) */}
-      <div className="w-full max-w-md my-2.5 grid grid-cols-2 gap-1.5 p-1.5 bg-white/5 border border-amber-500/20 backdrop-blur-md rounded-2xl shadow-lg">
+      {/* 1.5 EXPLICIT DUTY MODE TABS (Scan 1 vs Scan 2) */}
+      <div className="w-full max-w-md my-2.5 grid grid-cols-2 gap-2 p-1.5 bg-white/5 border border-amber-500/20 backdrop-blur-md rounded-2xl shadow-lg">
+        {/* Tab 1: ACTIVATION */}
         <button
           type="button"
-          onClick={() => {
-            setDutyMode('distribution');
-            localStorage.setItem('khelaiya_duty_mode', 'distribution');
-          }}
-          className={`py-2 px-3 rounded-xl text-xs font-black transition flex flex-col items-center justify-center gap-0.5 ${
+          onClick={() => selectDutyMode('distribution')}
+          className={`py-2.5 px-3 rounded-xl text-xs font-black transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
             dutyMode === 'distribution'
               ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg border border-purple-300/40'
-              : 'text-slate-400 hover:text-slate-200'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
           }`}
         >
           <div className="flex items-center gap-1.5">
@@ -293,16 +329,14 @@ export default function EntryScannerPage() {
           <span className="text-[10px] opacity-80 font-normal">Ticket Distribution Desk</span>
         </button>
 
+        {/* Tab 2: GATE ENTRY */}
         <button
           type="button"
-          onClick={() => {
-            setDutyMode('entry');
-            localStorage.setItem('khelaiya_duty_mode', 'entry');
-          }}
-          className={`py-2 px-3 rounded-xl text-xs font-black transition flex flex-col items-center justify-center gap-0.5 ${
+          onClick={() => selectDutyMode('entry')}
+          className={`py-2.5 px-3 rounded-xl text-xs font-black transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
             dutyMode === 'entry'
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg border border-amber-300/40'
-              : 'text-slate-400 hover:text-slate-200'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
           }`}
         >
           <div className="flex items-center gap-1.5">
@@ -320,9 +354,9 @@ export default function EntryScannerPage() {
           className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 cursor-pointer transition-all ${
             networkError
               ? 'bg-amber-600'
-              : lastResult?.result === 'activated' || (dutyMode === 'distribution' && lastResult?.success)
-              ? 'bg-emerald-600'
-              : lastResult?.result === 'valid'
+              : isDeskMode && (lastResult?.result === 'activated' || lastResult?.success)
+              ? 'bg-purple-700'
+              : !isDeskMode && lastResult?.result === 'valid'
               ? 'bg-emerald-600'
               : lastResult?.result === 'already_entered'
               ? 'bg-rose-700'
@@ -354,8 +388,8 @@ export default function EntryScannerPage() {
             </div>
           )}
 
-          {/* DISTRIBUTION DESK SUCCESS (GREEN) */}
-          {(lastResult?.result === 'activated' || (dutyMode === 'distribution' && lastResult?.success)) && (
+          {/* DISTRIBUTION DESK SUCCESS (SCAN 1: ACTIVATION) */}
+          {isDeskMode && (lastResult?.result === 'activated' || lastResult?.success) && (
             <div className="text-center max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
               <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white">
                 <CheckCircle2 className="w-16 h-16 text-white" />
@@ -366,7 +400,7 @@ export default function EntryScannerPage() {
 
               <div className="bg-black/30 backdrop-blur-md rounded-3xl p-5 border border-white/20 shadow-2xl text-left space-y-3">
                 <div>
-                  <span className="text-xs uppercase font-bold text-emerald-200 tracking-wider">
+                  <span className="text-xs uppercase font-bold text-purple-200 tracking-wider">
                     Physical Ticket Pass
                   </span>
                   <p className="text-4xl font-black text-amber-300 leading-tight">
@@ -375,10 +409,10 @@ export default function EntryScannerPage() {
                       : lastResult.attendee?.name || lastResult.ticket_id}
                   </p>
                 </div>
-                <div className="bg-emerald-950/60 border border-emerald-400/40 rounded-xl p-3 text-emerald-100 text-sm font-semibold">
-                  ✅ Pass activated! Hand ticket to attendee — it is now ready for single gate entry.
+                <div className="bg-purple-950/60 border border-purple-400/40 rounded-xl p-3 text-purple-100 text-sm font-semibold">
+                  ✅ Pass activated! Hand ticket to attendee — it is now valid for Gate Entry.
                 </div>
-                <div className="pt-2 border-t border-white/20 flex items-center justify-between text-xs font-mono text-emerald-100">
+                <div className="pt-2 border-t border-white/20 flex items-center justify-between text-xs font-mono text-purple-100">
                   <span className="flex items-center gap-1 font-semibold">
                     <Clock className="w-3.5 h-3.5" />
                     {new Date().toLocaleTimeString()}
@@ -389,8 +423,8 @@ export default function EntryScannerPage() {
             </div>
           )}
 
-          {/* CASE 1: GATE ENTRY APPROVED (GREEN) */}
-          {dutyMode === 'entry' && lastResult?.result === 'valid' && (
+          {/* GATE ENTRY SUCCESS (SCAN 2: ENTRY APPROVED) */}
+          {!isDeskMode && lastResult?.result === 'valid' && (
             <div className="text-center max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
               <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white">
                 <ShieldCheck className="w-16 h-16 text-white" />
@@ -441,7 +475,7 @@ export default function EntryScannerPage() {
             </div>
           )}
 
-          {/* CASE 2: ALREADY ENTERED (RED) */}
+          {/* DUPLICATE SCAN / ALREADY ENTERED (RED) */}
           {lastResult?.result === 'already_entered' && (
             <div className="text-center max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
               <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white animate-bounce">
@@ -491,7 +525,7 @@ export default function EntryScannerPage() {
             </div>
           )}
 
-          {/* CASE: TICKET NOT ACTIVATED / NOT DISTRIBUTED (AMBER) */}
+          {/* PASS NOT ACTIVATED AT DISTRIBUTION COUNTER (AMBER) */}
           {(lastResult?.result === 'not_activated' || lastResult?.result === 'not_approved') && (
             <div className="text-center max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
               <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white animate-pulse">
@@ -527,7 +561,7 @@ export default function EntryScannerPage() {
             </div>
           )}
 
-          {/* CASE 3: INVALID QR (RED) */}
+          {/* INVALID QR CODE (RED) */}
           {lastResult?.result === 'invalid' && (
             <div className="text-center max-w-sm space-y-4 animate-in fade-in zoom-in duration-150">
               <XCircle className="w-24 h-24 mx-auto text-white drop-shadow-lg" />
@@ -543,7 +577,7 @@ export default function EntryScannerPage() {
             </div>
           )}
 
-          {/* CASE 4: REVOKED (ORANGE) */}
+          {/* REVOKED TICKET (RED) */}
           {lastResult?.result === 'revoked' && (
             <div className="text-center max-w-sm space-y-4 animate-in fade-in zoom-in duration-150">
               <AlertTriangle className="w-24 h-24 mx-auto text-white drop-shadow-lg" />
@@ -564,6 +598,7 @@ export default function EntryScannerPage() {
           onScan={handleScan}
           isProcessing={isProcessing}
           disabled={!isConfigured}
+          dutyMode={dutyMode}
         />
       </main>
 

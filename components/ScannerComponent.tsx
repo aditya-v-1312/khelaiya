@@ -2,16 +2,23 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { Camera, RefreshCw, AlertCircle, Zap, Image as ImageIcon, Keyboard } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, Zap, Image as ImageIcon, Keyboard, Play } from 'lucide-react';
 
 interface ScannerProps {
   onScan: (decodedText: string) => Promise<void>;
   isProcessing: boolean;
   disabled?: boolean;
+  dutyMode?: 'entry' | 'distribution';
 }
 
-export default function ScannerComponent({ onScan, isProcessing, disabled }: ScannerProps) {
+export default function ScannerComponent({
+  onScan,
+  isProcessing,
+  disabled,
+  dutyMode = 'entry',
+}: ScannerProps) {
   const [scannerStarted, setScannerStarted] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameras, setCameras] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
@@ -25,26 +32,50 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
   const isStartingRef = useRef(false);
   const isMountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const onScanRef = useRef(onScan);
   const containerId = 'qr-reader-container';
 
-  // Synchronize lock status
+  // Always keep onScanRef up to date to eliminate stale closures
+  useEffect(() => {
+    onScanRef.current = onScan;
+  }, [onScan]);
+
+  // Synchronize lock status during processing or disabled state
   useEffect(() => {
     isLockedRef.current = isProcessing || !!disabled;
   }, [isProcessing, disabled]);
 
-  const handleScanSuccess = useCallback(
-    async (decodedText: string) => {
-      if (isLockedRef.current) return;
-      isLockedRef.current = true;
+  // Scan handler called by html5-qrcode
+  const handleScanSuccess = useCallback(async (decodedText: string) => {
+    if (isLockedRef.current) return;
+    isLockedRef.current = true;
 
-      try {
-        await onScan(decodedText.trim());
-      } catch (err) {
-        console.error('Scan handling failed:', err);
-      }
-    },
-    [onScan]
-  );
+    try {
+      await onScanRef.current(decodedText.trim());
+    } catch (err) {
+      console.error('Scan handling failed:', err);
+    }
+  }, []);
+
+  // Utility to enforce inline playback on iOS Safari
+  const enforceIosVideoAttributes = useCallback(() => {
+    try {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      const videos = container.querySelectorAll('video');
+      videos.forEach((video) => {
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('webkit-playsinline', 'true');
+        video.setAttribute('muted', 'true');
+        video.setAttribute('autoplay', 'true');
+        video.playsInline = true;
+        video.muted = true;
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+      });
+    } catch {}
+  }, []);
 
   const stopScanner = useCallback(async () => {
     try {
@@ -53,7 +84,6 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
         await scanner.stop();
       }
     } catch (e) {
-      // Ignore transition errors during stop
       console.warn('Scanner stop warning:', e);
     } finally {
       if (isMountedRef.current) {
@@ -64,18 +94,18 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
 
   const startScanner = useCallback(
     async (cameraId?: string) => {
-      // Prevent concurrent start calls
       if (isStartingRef.current) return;
       isStartingRef.current = true;
+      setIsInitializing(true);
+      setCameraError(null);
 
       try {
         if (!isMountedRef.current) return;
-        setCameraError(null);
 
-        // Ensure container DOM exists
         const container = document.getElementById(containerId);
         if (!container) {
           isStartingRef.current = false;
+          setIsInitializing(false);
           return;
         }
 
@@ -94,10 +124,15 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
           } catch {}
         }
 
+        // iOS COMPATIBLE CONFIG:
+        // NEVER pass aspectRatio: 1.0 because iOS Safari camera hardware rejects it!
         const qrConfig = {
           fps: 15,
-          qrbox: { width: 260, height: 260 },
-          aspectRatio: 1.0,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const boxSize = Math.max(180, Math.min(270, Math.floor(minEdge * 0.72)));
+            return { width: boxSize, height: boxSize };
+          },
         };
 
         const successCallback = (decodedText: string) => {
@@ -105,24 +140,81 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
         };
         const errorCallback = () => {};
 
-        // Try primary camera configuration
-        try {
-          if (cameraId) {
-            await scanner.start({ deviceId: { exact: cameraId } }, qrConfig, successCallback, errorCallback);
-          } else {
-            // Prefer rear environment camera on phones
-            await scanner.start({ facingMode: 'environment' }, qrConfig, successCallback, errorCallback);
+        // Camera start sequence optimized for iOS and Android
+        if (cameraId) {
+          try {
+            await scanner.start(
+              { deviceId: { exact: cameraId } },
+              qrConfig,
+              successCallback,
+              errorCallback
+            );
+          } catch (camErr) {
+            console.warn('Start with explicit camera ID failed, attempting environment:', camErr);
+            await scanner.start(
+              { facingMode: { ideal: 'environment' } },
+              qrConfig,
+              successCallback,
+              errorCallback
+            );
           }
-        } catch (firstErr) {
-          console.warn('Environment camera start failed, attempting user-facing fallback:', firstErr);
-          // Fallback to any available camera (e.g. Mac/laptop webcam)
-          await scanner.start({ facingMode: 'user' }, qrConfig, successCallback, errorCallback);
+        } else {
+          // Default: Start directly with environment rear camera (works best with iOS Safari)
+          try {
+            await scanner.start(
+              { facingMode: { ideal: 'environment' } },
+              qrConfig,
+              successCallback,
+              errorCallback
+            );
+          } catch (envErr) {
+            console.warn('ideal environment camera failed, trying simple environment:', envErr);
+            try {
+              await scanner.start(
+                { facingMode: 'environment' },
+                qrConfig,
+                successCallback,
+                errorCallback
+              );
+            } catch (simpleEnvErr) {
+              console.warn('Simple environment failed, trying user-facing camera:', simpleEnvErr);
+              await scanner.start(
+                { facingMode: 'user' },
+                qrConfig,
+                successCallback,
+                errorCallback
+              );
+            }
+          }
         }
+
+        // Apply iOS Safari video element inline attributes
+        enforceIosVideoAttributes();
 
         if (isMountedRef.current) {
           setScannerStarted(true);
+          setIsInitializing(false);
 
-          // Check if torch/flashlight is supported
+          // Now that camera permission is active, enumerate cameras for the switcher
+          try {
+            const devices = await Html5Qrcode.getCameras();
+            if (isMountedRef.current && devices && devices.length > 0) {
+              setCameras(devices);
+              if (!cameraId) {
+                const backCam = devices.find(
+                  (d) =>
+                    d.label.toLowerCase().includes('back') ||
+                    d.label.toLowerCase().includes('rear') ||
+                    d.label.toLowerCase().includes('environment')
+                );
+                setSelectedCameraId(backCam ? backCam.id : devices[0].id);
+              }
+            }
+          } catch (enumErr) {
+            console.warn('Post-start getCameras enumeration notice:', enumErr);
+          }
+
+          // Check torch capability
           try {
             const capabilities = scanner.getRunningTrackCapabilities();
             if (capabilities && 'torch' in capabilities) {
@@ -142,20 +234,23 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
             errMsg.includes('denied')
           ) {
             setCameraError(
-              'Camera permission denied. Please allow camera access in your browser address bar (tap the lock/camera icon).'
+              'Camera access was not granted. On iPhone, tap "Allow" when prompted, or check Safari Settings > Camera > Allow.'
             );
           } else if (errMsg.includes('NotFoundError') || errMsg.includes('no camera')) {
-            setCameraError('No camera found on this device. You can test by uploading a QR image below.');
+            setCameraError('No camera detected. You can test by uploading a QR image or typing the Pass code.');
           } else {
-            setCameraError(`Camera notice: ${errMsg}. Ensure no other app (e.g. Zoom, Meet) is using the camera.`);
+            setCameraError(
+              `Camera notice: ${errMsg}. Please tap "Retry Camera" or grant browser permission.`
+            );
           }
           setScannerStarted(false);
+          setIsInitializing(false);
         }
       } finally {
         isStartingRef.current = false;
       }
     },
-    [handleScanSuccess]
+    [handleScanSuccess, enforceIosVideoAttributes]
   );
 
   const toggleTorch = async () => {
@@ -187,7 +282,7 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
       if (decodedText) {
         handleScanSuccess(decodedText);
       }
-    } catch (err) {
+    } catch {
       alert('Could not detect a QR code in this image. Try another photo.');
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -204,61 +299,97 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
     }
   };
 
-  // Mount effect
+  // Mount effect: Starts camera once and keeps watching video element
   useEffect(() => {
     isMountedRef.current = true;
 
-    async function init() {
-      try {
-        const devices = await Html5Qrcode.getCameras();
-        if (isMountedRef.current && devices && devices.length > 0) {
-          setCameras(devices);
-          const backCam = devices.find(
-            (d) => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('rear')
-          );
-          const defaultId = backCam ? backCam.id : devices[0].id;
-          setSelectedCameraId(defaultId);
-          startScanner(defaultId);
-          return;
-        }
-      } catch (err) {
-        console.warn('getCameras failed, falling back to default start:', err);
-      }
+    // Direct start on mount
+    startScanner();
 
-      if (isMountedRef.current) {
-        startScanner();
-      }
-    }
-
-    init();
+    // Periodic check to ensure iOS Safari keeps playsinline
+    const interval = setInterval(() => {
+      enforceIosVideoAttributes();
+    }, 1500);
 
     return () => {
       isMountedRef.current = false;
+      clearInterval(interval);
       if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
         html5QrCodeRef.current.stop().catch(() => {});
       }
     };
-  }, [startScanner]);
+  }, [startScanner, enforceIosVideoAttributes]);
+
+  const isDeskMode = dutyMode === 'distribution';
 
   return (
     <div className="relative w-full flex flex-col items-center">
       {/* Viewport Card */}
-      <div className="relative w-full max-w-md aspect-square bg-black rounded-3xl overflow-hidden shadow-2xl border-2 border-amber-500/30">
+      <div
+        className={`relative w-full max-w-md aspect-square bg-black rounded-3xl overflow-hidden shadow-2xl border-2 transition-colors duration-300 ${
+          isDeskMode ? 'border-purple-500/40 shadow-purple-950/30' : 'border-amber-500/40 shadow-amber-950/30'
+        }`}
+      >
+        {/* Inline CSS to enforce iOS Safari video dimensions */}
+        <style jsx global>{`
+          #qr-reader-container {
+            width: 100% !important;
+            height: 100% !important;
+            position: relative !important;
+            border: none !important;
+          }
+          #qr-reader-container video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover !important;
+            border-radius: 1.5rem !important;
+          }
+          #qr-reader-container__scan_region {
+            min-height: 100% !important;
+          }
+        `}</style>
+
         {/* Html5Qrcode target element */}
         <div id={containerId} className="w-full h-full object-cover" />
 
         {/* Target Frame Overlay */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="relative w-64 h-64 border-2 border-amber-400/40 rounded-2xl">
+          <div
+            className={`relative w-64 h-64 border-2 rounded-2xl transition-colors duration-300 ${
+              isDeskMode ? 'border-purple-400/50' : 'border-amber-400/50'
+            }`}
+          >
             {/* Corner accents */}
-            <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-amber-400 rounded-tl-xl" />
-            <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-amber-400 rounded-tr-xl" />
-            <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-amber-400 rounded-bl-xl" />
-            <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-amber-400 rounded-br-xl" />
+            <div
+              className={`absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 rounded-tl-xl ${
+                isDeskMode ? 'border-purple-400' : 'border-amber-400'
+              }`}
+            />
+            <div
+              className={`absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 rounded-tr-xl ${
+                isDeskMode ? 'border-purple-400' : 'border-amber-400'
+              }`}
+            />
+            <div
+              className={`absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 rounded-bl-xl ${
+                isDeskMode ? 'border-purple-400' : 'border-amber-400'
+              }`}
+            />
+            <div
+              className={`absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 rounded-br-xl ${
+                isDeskMode ? 'border-purple-400' : 'border-amber-400'
+              }`}
+            />
 
             {/* Scanning line animation */}
             {scannerStarted && !isProcessing && (
-              <div className="absolute inset-x-2 top-0 h-1 bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_12px_#febf4a] animate-bounce" />
+              <div
+                className={`absolute inset-x-2 top-0 h-1 bg-gradient-to-r from-transparent via-current to-transparent animate-bounce ${
+                  isDeskMode
+                    ? 'text-purple-400 shadow-[0_0_12px_#c084fc]'
+                    : 'text-amber-400 shadow-[0_0_12px_#febf4a]'
+                }`}
+              />
             )}
           </div>
         </div>
@@ -266,42 +397,80 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
         {/* Processing Spinner Overlay */}
         {isProcessing && (
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-20">
-            <div className="w-16 h-16 border-4 border-amber-400 border-t-transparent rounded-full animate-spin" />
-            <p className="mt-4 text-amber-200 font-bold text-lg tracking-wider uppercase">
-              Verifying Ticket...
+            <div
+              className={`w-16 h-16 border-4 border-t-transparent rounded-full animate-spin ${
+                isDeskMode ? 'border-purple-400' : 'border-amber-400'
+              }`}
+            />
+            <p className="mt-4 text-white font-bold text-lg tracking-wider uppercase">
+              {isDeskMode ? 'Activating Pass...' : 'Verifying Entry...'}
             </p>
           </div>
         )}
 
-        {/* Camera Error Message with Helpful Fallbacks */}
+        {/* Initializing / Tap to Start Overlay for iOS user gesture */}
+        {!scannerStarted && !cameraError && (
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-15 space-y-3">
+            {isInitializing ? (
+              <>
+                <div
+                  className={`w-12 h-12 border-3 border-t-transparent rounded-full animate-spin ${
+                    isDeskMode ? 'border-purple-400' : 'border-amber-400'
+                  }`}
+                />
+                <p className="text-slate-300 text-xs font-semibold">Starting camera...</p>
+              </>
+            ) : null}
+
+            <button
+              onClick={() => startScanner(selectedCameraId)}
+              className={`px-5 py-3 rounded-2xl font-bold text-xs shadow-xl transition flex items-center gap-2 ${
+                isDeskMode
+                  ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/40'
+                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-900/40'
+              }`}
+            >
+              <Play className="w-4 h-4 fill-current" /> Tap to Enable Camera
+            </button>
+            <p className="text-slate-400 text-[11px] max-w-xs">
+              If prompted on iPhone, tap <strong>Allow</strong> to permit camera scanning.
+            </p>
+          </div>
+        )}
+
+        {/* Camera Error Message with Fallbacks */}
         {cameraError && (
           <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center z-30 space-y-4">
             <AlertCircle className="w-14 h-14 text-rose-500" />
             <div>
-              <h4 className="text-white font-bold text-lg">Camera Access</h4>
+              <h4 className="text-white font-bold text-lg">Camera Access Needed</h4>
               <p className="text-slate-300 text-xs mt-1 max-w-xs">{cameraError}</p>
             </div>
 
             <div className="flex flex-col gap-2 w-full max-w-xs">
               <button
                 onClick={() => startScanner(selectedCameraId)}
-                className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2"
+                className={`w-full py-2.5 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 ${
+                  isDeskMode
+                    ? 'bg-purple-600 hover:bg-purple-500 text-white'
+                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                }`}
               >
-                <RefreshCw className="w-4 h-4" /> Grant / Retry Camera
+                <RefreshCw className="w-4 h-4" /> Allow / Retry Camera
               </button>
 
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="w-full py-2.5 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2"
               >
-                <ImageIcon className="w-4 h-4 text-amber-400" /> Upload QR Image
+                <ImageIcon className="w-4 h-4 text-emerald-400" /> Upload QR Photo
               </button>
 
               <button
                 onClick={() => setShowManualInput(true)}
                 className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-slate-300 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2"
               >
-                <Keyboard className="w-4 h-4 text-slate-400" /> Type Ticket ID
+                <Keyboard className="w-4 h-4 text-slate-400" /> Type Pass Code
               </button>
             </div>
           </div>
@@ -343,7 +512,7 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
             }}
             className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl flex items-center gap-1.5 text-xs font-semibold transition"
           >
-            <Camera className="w-4 h-4 text-amber-400" /> Flip
+            <Camera className="w-4 h-4 text-amber-400" /> Switch Cam
           </button>
         )}
 
@@ -384,7 +553,7 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
         >
           <input
             type="text"
-            placeholder="e.g. NUV-KHL-X7F92KLMQ4"
+            placeholder="e.g. NUV-KHL-0012 or 12"
             value={manualTicketId}
             onChange={(e) => setManualTicketId(e.target.value)}
             className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-amber-400"
@@ -392,7 +561,11 @@ export default function ScannerComponent({ onScan, isProcessing, disabled }: Sca
           />
           <button
             type="submit"
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl transition"
+            className={`px-4 py-2 font-bold text-xs rounded-xl transition ${
+              isDeskMode
+                ? 'bg-purple-600 hover:bg-purple-500 text-white'
+                : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+            }`}
           >
             Submit
           </button>
