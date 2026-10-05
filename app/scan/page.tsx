@@ -272,6 +272,47 @@ export default function EntryScannerPage() {
         </div>
       </header>
 
+      {/* 1.5 DUTY MODE SELECTOR TABS (Scan 1 vs Scan 2) */}
+      <div className="w-full max-w-md my-2.5 grid grid-cols-2 gap-1.5 p-1.5 bg-white/5 border border-amber-500/20 backdrop-blur-md rounded-2xl shadow-lg">
+        <button
+          type="button"
+          onClick={() => {
+            setDutyMode('distribution');
+            localStorage.setItem('khelaiya_duty_mode', 'distribution');
+          }}
+          className={`py-2 px-3 rounded-xl text-xs font-black transition flex flex-col items-center justify-center gap-0.5 ${
+            dutyMode === 'distribution'
+              ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg border border-purple-300/40'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-purple-300" />
+            <span>SCAN 1: ACTIVATION</span>
+          </div>
+          <span className="text-[10px] opacity-80 font-normal">Ticket Distribution Desk</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setDutyMode('entry');
+            localStorage.setItem('khelaiya_duty_mode', 'entry');
+          }}
+          className={`py-2 px-3 rounded-xl text-xs font-black transition flex flex-col items-center justify-center gap-0.5 ${
+            dutyMode === 'entry'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg border border-amber-300/40'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <div className="flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-slate-950" />
+            <span>SCAN 2: GATE ENTRY</span>
+          </div>
+          <span className="text-[10px] opacity-80 font-normal">Single-Entry at Gate</span>
+        </button>
+      </div>
+
       {/* 2. SCAN RESULT FULLSCREEN OVERLAY MODAL */}
       {(lastResult || networkError) && (
         <div
@@ -279,16 +320,16 @@ export default function EntryScannerPage() {
           className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 cursor-pointer transition-all ${
             networkError
               ? 'bg-amber-600'
-              : dutyMode === 'distribution' && lastResult?.success
+              : lastResult?.result === 'activated' || (dutyMode === 'distribution' && lastResult?.success)
               ? 'bg-emerald-600'
               : lastResult?.result === 'valid'
               ? 'bg-emerald-600'
               : lastResult?.result === 'already_entered'
               ? 'bg-rose-700'
-              : lastResult?.result === 'not_approved'
+              : lastResult?.result === 'not_activated' || lastResult?.result === 'not_approved'
               ? 'bg-amber-700'
               : lastResult?.result === 'revoked'
-              ? 'bg-orange-600'
+              ? 'bg-rose-900'
               : 'bg-rose-800'
           }`}
         >
@@ -314,13 +355,13 @@ export default function EntryScannerPage() {
           )}
 
           {/* DISTRIBUTION DESK SUCCESS (GREEN) */}
-          {dutyMode === 'distribution' && lastResult?.success && (
+          {(lastResult?.result === 'activated' || (dutyMode === 'distribution' && lastResult?.success)) && (
             <div className="text-center max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
               <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white">
                 <CheckCircle2 className="w-16 h-16 text-white" />
               </div>
               <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tight text-white drop-shadow-md">
-                PASS APPROVED!
+                PASS ACTIVATED!
               </h1>
 
               <div className="bg-black/30 backdrop-blur-md rounded-3xl p-5 border border-white/20 shadow-2xl text-left space-y-3">
@@ -335,7 +376,7 @@ export default function EntryScannerPage() {
                   </p>
                 </div>
                 <div className="bg-emerald-950/60 border border-emerald-400/40 rounded-xl p-3 text-emerald-100 text-sm font-semibold">
-                  ✅ Ticket activated! Attendee may now enter at any gate.
+                  ✅ Pass activated! Hand ticket to attendee — it is now ready for single gate entry.
                 </div>
                 <div className="pt-2 border-t border-white/20 flex items-center justify-between text-xs font-mono text-emerald-100">
                   <span className="flex items-center gap-1 font-semibold">
@@ -450,20 +491,20 @@ export default function EntryScannerPage() {
             </div>
           )}
 
-          {/* CASE: TICKET NOT APPROVED / NOT DISTRIBUTED (AMBER) */}
-          {lastResult?.result === 'not_approved' && (
+          {/* CASE: TICKET NOT ACTIVATED / NOT DISTRIBUTED (AMBER) */}
+          {(lastResult?.result === 'not_activated' || lastResult?.result === 'not_approved') && (
             <div className="text-center max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-150">
               <div className="w-24 h-24 bg-white/20 rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-white animate-pulse">
                 <AlertTriangle className="w-16 h-16 text-amber-200" />
               </div>
               <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tight text-white drop-shadow-md">
-                NOT APPROVED
+                PASS NOT ACTIVATED!
               </h1>
 
               <div className="bg-black/30 backdrop-blur-md rounded-3xl p-5 border border-white/20 shadow-2xl text-left space-y-3">
                 <div>
                   <span className="text-xs uppercase font-bold text-amber-200 tracking-wider">
-                    Ticket Pass
+                    Physical Ticket Pass
                   </span>
                   <p className="text-3xl font-black text-amber-300 leading-tight">
                     {lastResult.attendee?.pass_number
@@ -473,7 +514,7 @@ export default function EntryScannerPage() {
                 </div>
 
                 <div className="bg-amber-950/60 border border-amber-400/40 rounded-xl p-3 text-amber-100 text-sm font-semibold">
-                  ⚠️ This pass has NOT been approved or issued yet. Direct attendee to Helpdesk.
+                  ⚠️ This pass has NOT been activated at the ticket distribution desk yet. Please direct attendee to the ticket distribution counter for Scan 1.
                 </div>
 
                 <div className="pt-2 border-t border-white/20 flex items-center justify-between text-xs font-mono text-amber-100">

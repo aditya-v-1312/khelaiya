@@ -55,7 +55,7 @@ export default function QRManagementPage() {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [genCount, setGenCount] = useState(1500);
-  const [genStatus, setGenStatus] = useState<'approved' | 'unapproved'>('approved');
+  const [genStatus, setGenStatus] = useState<'unactivated' | 'approved'>('unactivated');
 
   // Generate Numbered Passes (1 to 1500)
   const handleGeneratePasses = async () => {
@@ -224,11 +224,11 @@ export default function QRManagementPage() {
               <span className="text-slate-400 font-semibold">Status:</span>
               <select
                 value={genStatus}
-                onChange={(e) => setGenStatus(e.target.value as 'approved' | 'unapproved')}
-                className="bg-transparent text-emerald-300 font-bold focus:outline-none"
+                onChange={(e) => setGenStatus(e.target.value as 'unactivated' | 'approved')}
+                className="bg-transparent text-amber-300 font-bold focus:outline-none"
               >
-                <option value="approved" className="bg-slate-900 text-white">Pre-Approved (Ready for Gate)</option>
-                <option value="unapproved" className="bg-slate-900 text-white">Unapproved (Needs Desk Approval)</option>
+                <option value="unactivated" className="bg-slate-900 text-white">Unactivated (Scan to Activate at Desk)</option>
+                <option value="approved" className="bg-slate-900 text-white">Pre-Activated (Ready for Gate Entry)</option>
               </select>
             </div>
 

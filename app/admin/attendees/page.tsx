@@ -255,16 +255,16 @@ export default function AttendeesPage() {
       <div className="bg-gradient-to-r from-emerald-500/10 via-amber-500/10 to-teal-500/10 border border-emerald-500/30 rounded-3xl p-4 shadow-xl space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
-            <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">
-              Ticket Approval & Distribution Control
+            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
+              Pass Activation & Gate Permission Control
             </span>
             <p className="text-xs text-slate-300 mt-0.5">
-              Approve passes individually or in bulk so they are permitted for 1-time gate entry.
+              Activate physical passes individually or in bulk so they are permitted for single gate entry.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Quick Single Pass Approve */}
+            {/* Quick Single Pass Activate */}
             <form onSubmit={handleQuickApprove} className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-xl p-1">
               <input
                 type="text"
@@ -278,11 +278,11 @@ export default function AttendeesPage() {
                 disabled={isApproving || !quickPassInput.trim()}
                 className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-slate-950 font-bold rounded-lg text-xs transition"
               >
-                Approve
+                Activate
               </button>
             </form>
 
-            {/* Range Approve */}
+            {/* Range Activate */}
             <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-xl p-1 text-xs">
               <span className="text-slate-400 px-1 font-semibold">Pass:</span>
               <input
@@ -304,18 +304,18 @@ export default function AttendeesPage() {
                 disabled={isApproving}
                 className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 disabled:opacity-50 text-slate-950 font-bold rounded-lg text-xs transition"
               >
-                Approve Range
+                Activate Range
               </button>
             </div>
 
-            {/* Approve All */}
+            {/* Activate All */}
             <button
               type="button"
               onClick={handleApproveAll}
               disabled={isApproving}
               className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold rounded-xl text-xs transition"
             >
-              Approve All
+              Activate All
             </button>
           </div>
         </div>
@@ -347,11 +347,10 @@ export default function AttendeesPage() {
             className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 font-semibold"
           >
             <option value="all">All Statuses</option>
-            <option value="approved">Approved (Valid for Entry)</option>
-            <option value="unapproved">Unapproved (In Box)</option>
-            <option value="entered">Entered (Already In)</option>
-            <option value="registered">Registered</option>
-            <option value="revoked">Revoked</option>
+            <option value="unactivated">⚡ Unactivated (Awaiting Desk Activation)</option>
+            <option value="activated">✅ Activated (Ready for Gate Entry)</option>
+            <option value="entered">🚪 Entered (Single Entry Used)</option>
+            <option value="revoked">🚫 Revoked</option>
           </select>
         </div>
       </div>
@@ -404,22 +403,26 @@ export default function AttendeesPage() {
                     <td className="py-3.5 px-4">
                       <span
                         className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase ${
-                          a.status === 'approved'
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                            : a.status === 'unapproved'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : a.status === 'entered'
+                          a.status === 'entered'
                             ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                            : a.status === 'registered'
-                            ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : a.status === 'unactivated' || a.status === 'unapproved'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : a.status === 'revoked'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                         }`}
                       >
-                        {(a.status === 'approved' || a.status === 'entered') && <CheckCircle2 className="w-3 h-3" />}
-                        {a.status === 'unapproved' && <Clock className="w-3 h-3" />}
-                        {a.status === 'registered' && <Clock className="w-3 h-3" />}
+                        {a.status === 'entered' && <CheckCircle2 className="w-3 h-3" />}
+                        {(a.status === 'unactivated' || a.status === 'unapproved') && <Clock className="w-3 h-3" />}
                         {a.status === 'revoked' && <Ban className="w-3 h-3" />}
-                        {a.status}
+                        {(a.status === 'activated' || a.status === 'registered' || a.status === 'approved') && <CheckCircle2 className="w-3 h-3" />}
+                        {a.status === 'unactivated' || a.status === 'unapproved'
+                          ? 'Unactivated'
+                          : a.status === 'entered'
+                          ? 'Entered'
+                          : a.status === 'revoked'
+                          ? 'Revoked'
+                          : 'Activated'}
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-xs text-slate-400">
@@ -438,14 +441,14 @@ export default function AttendeesPage() {
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        {/* Quick Approve Button for Unapproved Passes */}
-                        {a.status === 'unapproved' && (
+                        {/* Quick Activate Button for Unactivated Passes */}
+                        {(a.status === 'unactivated' || a.status === 'unapproved') && (
                           <button
                             onClick={() => handleRowApprove(a.ticket_id)}
                             className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs transition flex items-center gap-1"
-                            title="Approve pass for distribution"
+                            title="Activate pass for distribution"
                           >
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Activate
                           </button>
                         )}
 
@@ -459,7 +462,7 @@ export default function AttendeesPage() {
                         </button>
 
                         {/* Manual Entry Fallback Button */}
-                        {(a.status === 'registered' || a.status === 'approved') && (
+                        {(a.status === 'registered' || a.status === 'approved' || a.status === 'activated') && (
                           <button
                             onClick={() => setManualEntryAttendee(a)}
                             className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs transition flex items-center gap-1"

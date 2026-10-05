@@ -1,10 +1,19 @@
-export type AttendeeStatus = 'registered' | 'approved' | 'unapproved' | 'entered' | 'revoked';
+export type AttendeeStatus =
+  | 'unactivated'
+  | 'activated'
+  | 'registered'
+  | 'approved'
+  | 'unapproved'
+  | 'entered'
+  | 'revoked';
 
-export type ScanType = 'entry' | 'verification' | 'manual_entry' | 'approval';
+export type ScanType = 'entry' | 'verification' | 'manual_entry' | 'approval' | 'activation';
 
 export type ScanResultStatus =
   | 'valid'
+  | 'activated'
   | 'already_entered'
+  | 'not_activated'
   | 'not_approved'
   | 'invalid'
   | 'revoked'
