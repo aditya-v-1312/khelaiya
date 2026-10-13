@@ -3,12 +3,13 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Shield, QrCode, Lock, KeyRound, Sparkles, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Shield, QrCode, Lock, User, KeyRound, Sparkles, ArrowRight, ArrowLeft } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [role, setRole] = useState<'scanner' | 'admin'>('scanner');
-  const [pin, setPin] = useState('');
+  const [role, setRole] = useState<'scanner' | 'admin'>('admin');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const handleLogin = (e: React.FormEvent) => {
@@ -19,12 +20,15 @@ export default function LoginPage() {
       // Volunteer quick access - redirects directly to scanner gate setup
       router.push('/scan');
     } else {
-      // Admin Access PIN check (Default organizer PIN: 2026 or custom)
-      if (pin === '2026' || pin === 'admin123' || !pin) {
+      const trimmedUser = username.trim().toLowerCase();
+      const trimmedPass = password.trim();
+
+      // Hardcoded credentials: user: nuvcc, pass: nuvcc2026
+      if (trimmedUser === 'nuvcc' && trimmedPass === 'nuvcc2026') {
         localStorage.setItem('khelaiya_admin_auth', 'true');
         router.push('/admin');
       } else {
-        setError('Invalid Organizer PIN. Please enter event master PIN.');
+        setError('Invalid credentials. (ID: nuvcc | Pass: nuvcc2026)');
       }
     }
   };
@@ -58,21 +62,6 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={() => {
-              setRole('scanner');
-              setError('');
-            }}
-            className={`py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-              role === 'scanner'
-                ? 'bg-amber-400 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <QrCode className="w-3.5 h-3.5" /> Scanner Volunteer
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
               setRole('admin');
               setError('');
             }}
@@ -84,33 +73,70 @@ export default function LoginPage() {
           >
             <Shield className="w-3.5 h-3.5" /> Event Admin
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setRole('scanner');
+              setError('');
+            }}
+            className={`py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              role === 'scanner'
+                ? 'bg-amber-400 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <QrCode className="w-3.5 h-3.5" /> Scanner Volunteer
+          </button>
         </div>
 
         {/* Login Form */}
         <form onSubmit={handleLogin} className="space-y-4">
           {role === 'scanner' ? (
             <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-xs text-slate-300 space-y-2">
-              <p className="font-semibold text-amber-200">
-                Gate 1 & Gate 2 Volunteer Setup:
+              <p className="font-semibold text-emerald-300">
+                Gate Entry & Activation Desk Volunteers:
               </p>
               <p>
-                Click proceed to choose your Gate (Gate 1 or 2) and device ID (G1-A, G1-B, G2-A, G2-B). Your phone camera will open automatically.
+                No login password required! Click below to access both Desk Activation and Gate 1 & 2 single-entry scanning.
               </p>
             </div>
           ) : (
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-amber-300 uppercase tracking-wider block">
-                Organizer Security PIN
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="password"
-                  placeholder="Enter PIN (Default: 2026)"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  className="w-full bg-slate-950 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
-                />
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-amber-300 uppercase tracking-wider block">
+                  Admin User ID
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter ID (nuvcc)"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
+                    autoComplete="username"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-amber-300 uppercase tracking-wider block">
+                  Admin Password
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="Enter pass (nuvcc2026)"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
+                    autoComplete="current-password"
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -125,7 +151,7 @@ export default function LoginPage() {
             type="submit"
             className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-xl text-sm transition shadow-lg flex items-center justify-center gap-2"
           >
-            <span>{role === 'scanner' ? 'Access Scanner' : 'Enter Admin Room'}</span>
+            <span>{role === 'scanner' ? 'Access Scanner (No Login)' : 'Enter Admin Room'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
