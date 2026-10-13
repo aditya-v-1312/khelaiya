@@ -28,7 +28,7 @@ export default function LoginPage() {
         localStorage.setItem('khelaiya_admin_auth', 'true');
         router.push('/admin');
       } else {
-        setError('Invalid credentials. (ID: nuvcc | Pass: nuvcc2026)');
+        setError('Invalid Admin ID or Password.');
       }
     }
   };
@@ -112,7 +112,7 @@ export default function LoginPage() {
                   <input
                     type="text"
                     required
-                    placeholder="Enter ID (nuvcc)"
+                    placeholder="Enter Admin ID"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-slate-950 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
@@ -130,7 +130,7 @@ export default function LoginPage() {
                   <input
                     type="password"
                     required
-                    placeholder="Enter pass (nuvcc2026)"
+                    placeholder="Enter Password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full bg-slate-950 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"

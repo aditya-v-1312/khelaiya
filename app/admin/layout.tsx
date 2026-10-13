@@ -50,7 +50,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       setIsAuthenticated(true);
       setError('');
     } else {
-      setError('Invalid credentials. (ID: nuvcc | Pass: nuvcc2026)');
+      setError('Invalid Admin ID or Password.');
     }
   };
 
@@ -124,7 +124,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     required
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Enter ID (nuvcc)"
+                    placeholder="Enter Admin ID"
                     className="w-full bg-slate-950/80 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
                     autoComplete="username"
                   />
@@ -142,7 +142,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter pass (nuvcc2026)"
+                    placeholder="Enter Password"
                     className="w-full bg-slate-950/80 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
                     autoComplete="current-password"
                   />
